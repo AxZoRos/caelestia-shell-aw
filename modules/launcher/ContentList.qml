@@ -1,6 +1,9 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
+import QtQuick.Layouts
+import Quickshell
+import Quickshell.Io
 import Caelestia.Config
 import qs.components
 import qs.components.controls
@@ -48,7 +51,7 @@ Item {
 
             PropertyChanges {
                 root.implicitWidth: Math.max(root.Tokens.sizes.launcher.itemWidth * 1.2, wallpaperList.implicitWidth)
-                root.implicitHeight: root.Tokens.sizes.launcher.wallpaperHeight
+                root.implicitHeight: root.Tokens.sizes.launcher.wallpaperHeight + 56
                 wallpaperList.active: true
             }
         }
@@ -99,13 +102,82 @@ Item {
         anchors.bottom: parent.bottom
         anchors.horizontalCenter: parent.horizontalCenter
 
-        sourceComponent: WallpaperList {
-            objectName: "launcherWallpaperList"
+        sourceComponent: ColumnLayout {
+            spacing: Tokens.spacing.normal
+            implicitWidth: listComp.implicitWidth
 
-            search: root.search
-            screenState: root.screenState
-            panels: root.panels
-            content: root.content
+            RowLayout {
+                Layout.alignment: Qt.AlignHCenter
+                spacing: Tokens.spacing.normal * 1.06
+
+                IconTextButton {
+                    icon: "image"
+                    text: qsTr("Static")
+                    font.pointSize: Tokens.font.size.small
+                    isRound: true
+                    horizontalPadding: Tokens.padding.medium
+                    verticalPadding: Tokens.padding.extraSmall
+                    type: Wallpapers.wallpaperMode === "static" ? IconTextButton.Filled : IconTextButton.Tonal
+                    onClicked: Wallpapers.setWallpaperMode("static")
+                }
+
+                IconTextButton {
+                    icon: "movie"
+                    text: qsTr("Animated")
+                    font.pointSize: Tokens.font.size.small
+                    isRound: true
+                    horizontalPadding: Tokens.padding.medium
+                    verticalPadding: Tokens.padding.extraSmall
+                    type: Wallpapers.wallpaperMode === "animated" ? IconTextButton.Filled : IconTextButton.Tonal
+                    onClicked: Wallpapers.setWallpaperMode("animated")
+                }
+
+                IconTextButton {
+                    icon: "refresh"
+                    text: qsTr("Refresh")
+                    font.pointSize: Tokens.font.size.small
+                    scale: 0.9
+                    isRound: true
+                    horizontalPadding: Tokens.padding.medium
+                    verticalPadding: Tokens.padding.extraSmall
+                    visible: Wallpapers.wallpaperMode === "animated"
+                    type: IconTextButton.Tonal
+                    onClicked: {
+                        Wallpapers.refreshAnimatedThumbs();
+                    }
+                }
+
+                Text {
+                    id: processingText
+                    font.pointSize: Tokens.font.size.small
+                    color: Colours.palette.m3secondary
+                    visible: Wallpapers._refreshing && Wallpapers.wallpaperMode === "animated"
+                    Layout.alignment: Qt.AlignVCenter
+
+                    property int dotCount: 1
+                    text: "Processing" + ".".repeat(dotCount)
+
+                    Timer {
+                        running: processingText.visible
+                        repeat: true
+                        interval: 400
+                        onTriggered: {
+                            processingText.dotCount = (processingText.dotCount % 3) + 1;
+                        }
+                    }
+                }
+            }
+
+            WallpaperList {
+                id: listComp
+                objectName: "launcherWallpaperList"
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                search: root.search
+                screenState: root.screenState
+                panels: root.panels
+                content: root.content
+            }
         }
     }
 
