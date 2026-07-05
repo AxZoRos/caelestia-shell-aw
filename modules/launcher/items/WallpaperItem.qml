@@ -14,14 +14,9 @@ Item {
     required property FileSystemEntry modelData
     required property ScreenState screenState
 
-    scale: 0.5
-    opacity: 0
+    scale: PathView.isCurrentItem ? 1 : PathView.onPath ? 0.8 : 0
+    opacity: PathView.onPath ? 1 : 0
     z: PathView.z ?? 0 // qmllint disable missing-property
-
-    Component.onCompleted: {
-        scale = Qt.binding(() => PathView.isCurrentItem ? 1 : PathView.onPath ? 0.8 : 0);
-        opacity = Qt.binding(() => PathView.onPath ? 1 : 0);
-    }
 
     implicitWidth: image.width + Tokens.padding.medium * 2
     implicitHeight: image.height + label.height + Tokens.spacing.extraSmall + Tokens.padding.large + Tokens.padding.medium
@@ -29,21 +24,6 @@ Item {
     Item {
         id: popContainer
         anchors.fill: parent
-        scale: 0.5
-        opacity: 0.3
-
-        NumberAnimation on scale {
-            to: 1
-            duration: 800
-            easing.type: Easing.OutBack
-            running: true
-        }
-        NumberAnimation on opacity {
-            to: 1
-            duration: 800
-            easing.type: Easing.OutCubic
-            running: true
-        }
 
         StateLayer {
             radius: Tokens.rounding.large
@@ -90,23 +70,26 @@ Item {
                 anchors.fill: parent
                 path: root.modelData.path
                 source: Wallpapers.isVideo(root.modelData.path) ? Wallpapers.getWallpaperThumb(root.modelData.path, Wallpapers.itemBusters[root.modelData.path] || Wallpapers.cacheBuster) : IUtils.urlForPath(root.modelData.path, fillMode)
-                smooth: !root.PathView.view.moving
+                smooth: !root.PathView.view?.moving ?? true
                 sourceSize: {
                     const dpr = (QsWindow.window as QsWindow)?.devicePixelRatio ?? 1;
                     return Qt.size(image.implicitWidth * dpr, image.implicitHeight * dpr);
                 }
 
-                property bool isThumbReady: !Wallpapers._refreshing || Wallpapers.itemBusters[root.modelData.path] !== undefined
+                readonly property bool isThumbReady: !Wallpapers._refreshing || Wallpapers.itemBusters[root.modelData.path] !== undefined
 
-                // Premium fade-in and scale animation when loaded
                 opacity: isThumbReady && status === Image.Ready ? 1 : 0
                 scale: isThumbReady && status === Image.Ready ? 1 : 0.7
 
                 Behavior on opacity {
-                    NumberAnimation { duration: 800; easing.type: Easing.OutCubic }
+                    Anim {
+                        type: Anim.DefaultEffects
+                    }
                 }
                 Behavior on scale {
-                    NumberAnimation { duration: 800; easing.type: Easing.OutBack }
+                    Anim {
+                        type: Anim.DefaultEffects
+                    }
                 }
             }
         }
