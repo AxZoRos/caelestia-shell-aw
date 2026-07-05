@@ -14,19 +14,13 @@ Item {
     property string source: Wallpapers.current
     property Image current: one
     property bool completed
-
-    readonly property var validVideoExtensions: ["mp4", "webm", "mkv"]
-    readonly property bool sourceIsVideo: isVideoFile(source)
+    readonly property bool sourceIsVideo: Wallpapers.isVideo(source)
     readonly property url videoSource: sourceIsVideo ? toFileUrl(source) : ""
 
     function fileExtension(path) {
         const clean = String(path || "").split(/[?#]/)[0].toLowerCase();
         const index = clean.lastIndexOf(".");
         return index >= 0 ? clean.slice(index + 1) : "";
-    }
-
-    function isVideoFile(path) {
-        return validVideoExtensions.indexOf(fileExtension(path)) !== -1;
     }
 
     function toFileUrl(path) {

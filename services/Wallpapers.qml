@@ -23,10 +23,6 @@ Searcher {
     property bool pendingPreviewClear
 
     readonly property list<string> validVideoExtensions: ["mp4", "webm", "mkv"]
-    readonly property list<string> validWallpaperExtensions: [
-        "*.jpg", "*.jpeg", "*.png", "*.webp", "*.tif", "*.tiff", "*.svg", "*.gif",
-        "*.mp4", "*.webm", "*.mkv"
-    ]
     property string wallpaperMode: "static"
     property string cacheBuster: ""
 

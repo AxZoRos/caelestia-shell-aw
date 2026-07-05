@@ -6,7 +6,6 @@ Item {
 
     property url videoSource
     property bool autoStart: true
-    readonly property var validVideoExtensions: ["mp4", "webm", "mkv"]
 
     // Expose active player state
     property alias playbackState: root._activePlaybackState
@@ -27,12 +26,16 @@ Item {
     property bool forceFrameRenderB: false
 
     function play() {
+        // Note: _swapping selects the incoming player. If play() is called during a swap,
+        // it acts on the incoming video.
         const active = _swapping ? (_pendingSwapToA ? playerA : playerB) : (_usePlayerA ? playerA : playerB);
         if (videoSource != "" && videoSource.toString() !== "")
             active.play();
     }
 
     function pause() {
+        // Note: _swapping selects the incoming player. If pause() is called during a swap,
+        // it pauses the incoming video rather than the fading-out one.
         const active = _swapping ? (_pendingSwapToA ? playerA : playerB) : (_usePlayerA ? playerA : playerB);
         active.pause();
     }
