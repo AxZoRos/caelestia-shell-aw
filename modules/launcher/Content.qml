@@ -61,28 +61,32 @@ Item {
         placeholderText: qsTr("Type \"%1\" for commands").arg(GlobalConfig.launcher.actionPrefix)
 
         onTextChanged: {
-            if (text === GlobalConfig.launcher.actionPrefix) {
+            if (text === `${GlobalConfig.launcher.actionPrefix}wallpaper `) {
                 Wallpapers.updateWallpapers();
             }
         }
 
         onAccepted: {
             const currentItem = list.currentList?.currentItem;
-            if (currentItem) {
-                if (list.showWallpapers) {
-                    if (Colours.scheme === "dynamic" && currentItem.modelData.path !== Wallpapers.actualCurrent)
-                        Wallpapers.previewColourLock = true;
-                    Wallpapers.setWallpaper(currentItem.modelData.path);
-                    root.screenState.launcher = false;
-                } else if (text.startsWith(GlobalConfig.launcher.actionPrefix)) {
-                    if (text.startsWith(`${GlobalConfig.launcher.actionPrefix}calc `))
-                        currentItem.onClicked();
-                    else
-                        currentItem.modelData.onClicked(list.currentList);
-                } else {
-                    Apps.launch(currentItem.modelData);
-                    root.screenState.launcher = false;
-                }
+            if (!currentItem)
+                return;
+
+            if (list.showWallpapers) {
+                const path = currentItem.modelData.path;
+                if (Colours.scheme === "dynamic" && path !== Wallpapers.actualCurrent)
+                    Wallpapers.previewColourLock = true;
+                Wallpapers.setWallpaper(path);
+                root.screenState.launcher = false;
+                return;
+            }
+
+            if (text.startsWith(`${GlobalConfig.launcher.actionPrefix}calc `)) {
+                currentItem.onClicked();
+            } else if (text.startsWith(GlobalConfig.launcher.actionPrefix)) {
+                currentItem.modelData.onClicked(list.currentList);
+            } else {
+                Apps.launch(currentItem.modelData);
+                root.screenState.launcher = false;
             }
         }
 
@@ -115,7 +119,9 @@ Item {
         Component.onCompleted: {
             forceActiveFocus();
             if (Wallpapers.restoreWallpaperMode) {
-                text = `${GlobalConfig.launcher.actionPrefix}wallpaper `;
+                const target = `${GlobalConfig.launcher.actionPrefix}wallpaper `;
+                if (text !== target)
+                    text = target;
                 Wallpapers.restoreWallpaperMode = false;
             }
         }

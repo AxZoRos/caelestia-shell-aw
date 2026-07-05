@@ -66,7 +66,6 @@ Item {
                 to: 0
                 type: Anim.DefaultEffects
             }
-            PropertyAction {}
             Anim {
                 target: root
                 property: "opacity"
@@ -147,24 +146,23 @@ Item {
                     }
                 }
 
+                Timer {
+                    id: processingDotsTimer
+                    running: Wallpapers._refreshing && Wallpapers.wallpaperMode === "animated"
+                    repeat: true
+                    interval: 400
+                    onTriggered: processingText.dotCount = (processingText.dotCount % 3) + 1;
+                }
+
                 Text {
                     id: processingText
                     font.pointSize: Tokens.font.size.small
                     color: Colours.palette.m3secondary
-                    visible: Wallpapers._refreshing && Wallpapers.wallpaperMode === "animated"
+                    visible: processingDotsTimer.running
                     Layout.alignment: Qt.AlignVCenter
 
                     property int dotCount: 1
                     text: "Processing" + ".".repeat(dotCount)
-
-                    Timer {
-                        running: processingText.visible
-                        repeat: true
-                        interval: 400
-                        onTriggered: {
-                            processingText.dotCount = (processingText.dotCount % 3) + 1;
-                        }
-                    }
                 }
             }
 
@@ -184,8 +182,9 @@ Item {
     Row {
         id: empty
 
-        opacity: root.currentList?.count === 0 ? 1 : 0
-        scale: root.currentList?.count === 0 ? 1 : 0.5
+        readonly property int count: root.currentList?.count ?? 0
+        opacity: count === 0 ? 1 : 0
+        scale: count === 0 ? 1 : 0.5
 
         spacing: Tokens.spacing.medium
         padding: Tokens.padding.large

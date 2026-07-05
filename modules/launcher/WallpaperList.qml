@@ -53,13 +53,17 @@ PathView {
         onValuesChanged: {
             const idx = values.findIndex(w => w.path === Wallpapers.actualCurrent);
             root.currentIndex = search ? 0 : Math.max(0, idx);
-            syncTimer.restart();
         }
     }
 
+    Component.onCompleted: {
+        currentIndex = Math.max(0, Wallpapers.list.findIndex(w => w.path === Wallpapers.actualCurrent));
+    }
+    Component.onDestruction: Wallpapers.stopPreview()
+
     Timer {
-        id: syncTimer
-        interval: 50
+        id: previewDebounce
+        interval: 100
         repeat: false
         onTriggered: {
             if (scriptModel.values && scriptModel.values[root.currentIndex]) {
@@ -68,17 +72,7 @@ PathView {
         }
     }
 
-    Component.onCompleted: {
-        currentIndex = Math.max(0, Wallpapers.list.findIndex(w => w.path === Wallpapers.actualCurrent));
-        syncTimer.restart();
-    }
-    Component.onDestruction: Wallpapers.stopPreview()
-
-    onCurrentIndexChanged: {
-        if (scriptModel.values && scriptModel.values[currentIndex]) {
-            Wallpapers.preview(scriptModel.values[currentIndex].path);
-        }
-    }
+    onCurrentIndexChanged: previewDebounce.restart()
 
     implicitWidth: Math.min(numItems, count) * itemWidth
     pathItemCount: numItems
