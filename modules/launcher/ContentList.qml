@@ -102,6 +102,7 @@ Item {
         anchors.horizontalCenter: parent.horizontalCenter
 
         sourceComponent: ColumnLayout {
+            readonly property int count: listComp.count
             spacing: Tokens.spacing.normal
             implicitWidth: listComp.implicitWidth
 
