@@ -25,6 +25,7 @@ Singleton {
     property alias hwDecoder: pauserSettings.hwDecoder
     property bool paused: false
     property bool _loaded: false
+    property string pauseReason: "None"
 
     Process {
         id: saveHwDecoderProcess
@@ -44,10 +45,7 @@ Singleton {
 
             if (ws) {
                 // Strictly filter global toplevels to ONLY the focused workspace
-                const toplevels = Hyprland.toplevels.values.filter(t => {
-                    const obj = t.lastIpcObject;
-                    return obj && obj.workspace && obj.workspace.id === ws.id;
-                });
+                const toplevels = ws.toplevels.values;
 
                 // Rule #3 — 2+ visible windows
                 if (toplevels.length >= 2) {
@@ -77,6 +75,7 @@ Singleton {
         }
 
         paused = newPaused;
+        root.pauseReason = reason;
     }
 
     Connections {
@@ -104,7 +103,7 @@ Singleton {
 
     Timer {
         id: recalcTimer
-        interval: 150
+        interval: 50
         onTriggered: root.recalculate()
     }
 
