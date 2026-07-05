@@ -38,6 +38,8 @@ Item {
             asynchronous: true
             source: Quickshell.iconPath(root.modelData?.icon, "image-missing")
             implicitSize: parent.height * 0.8
+            width: implicitSize
+            height: implicitSize
 
             anchors.verticalCenter: parent.verticalCenter
         }
