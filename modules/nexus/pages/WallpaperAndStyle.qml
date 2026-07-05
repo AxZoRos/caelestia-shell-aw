@@ -13,6 +13,23 @@ import qs.modules.nexus.common
 PageBase {
     id: root
 
+    readonly property list<MenuItem> hwDecoderItems: [
+        MenuItem { text: qsTr("Auto") },
+        MenuItem { text: qsTr("Software") },
+        MenuItem { text: "VAAPI" },
+        MenuItem { text: "VDPAU" },
+        MenuItem { text: "CUDA" },
+        MenuItem { text: "Vulkan" },
+        MenuItem { text: "DRM" }
+    ]
+    readonly property list<string> hwDecoderValues: ["auto", "none", "vaapi", "vdpau", "cuda", "vulkan", "drm"]
+
+    function hwDecoderToIndex(val: string): int {
+        const v = (val ?? "none").toLowerCase();
+        const idx = hwDecoderValues.indexOf(v);
+        return idx >= 0 ? idx : 1; // Default to software (none)
+    }
+
     title: qsTr("Wallpaper & style")
 
     ColumnLayout {
@@ -171,14 +188,45 @@ PageBase {
         }
 
         ToggleRow {
+            Layout.fillWidth: true
             first: true
             text: qsTr("Display wallpaper")
             checked: Config.background.wallpaperEnabled
             onToggled: GlobalConfig.background.wallpaperEnabled = checked
         }
 
+        SelectRow {
+            Layout.topMargin: Tokens.spacing.extraSmall / 2 - parent.spacing
+            Layout.fillWidth: true
+
+            label: qsTr("Video Hardware Decoder")
+            menuOnTop: true
+            menuItems: root.hwDecoderItems
+            active: root.hwDecoderItems[root.hwDecoderToIndex(WallpaperPauser.hwDecoder)]
+            onSelected: item => WallpaperPauser.hwDecoder = root.hwDecoderValues[root.hwDecoderItems.indexOf(item)]
+        }
+
         ToggleRow {
             Layout.topMargin: Tokens.spacing.extraSmall / 2 - parent.spacing
+            Layout.fillWidth: true
+
+            text: qsTr("Pause animated wallpapers on battery")
+            checked: WallpaperPauser.pauseOnBattery
+            onToggled: WallpaperPauser.pauseOnBattery = checked
+        }
+
+        ToggleRow {
+            Layout.topMargin: Tokens.spacing.extraSmall / 2 - parent.spacing
+            Layout.fillWidth: true
+
+            text: qsTr("Pause animated wallpapers behind windows")
+            checked: WallpaperPauser.pauseOnWindowOverlap
+            onToggled: WallpaperPauser.pauseOnWindowOverlap = checked
+        }
+
+        ToggleRow {
+            Layout.topMargin: Tokens.spacing.extraSmall / 2 - parent.spacing
+            Layout.fillWidth: true
 
             text: qsTr("Transparency")
             subtext: qsTr("Base %1, layers %2").arg(Colours.transparency.base).arg(Colours.transparency.layers)
@@ -188,6 +236,7 @@ PageBase {
 
         ToggleRow {
             Layout.topMargin: Tokens.spacing.extraSmall / 2 - parent.spacing
+            Layout.fillWidth: true
 
             last: true
             text: qsTr("Dark theme")
