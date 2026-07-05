@@ -1,6 +1,7 @@
 pragma Singleton
 
 import QtQuick
+import QtCore
 import Quickshell
 import Quickshell.Hyprland
 import Quickshell.Services.UPower
@@ -11,101 +12,25 @@ import qs.services
 Singleton {
     id: root
 
-    property bool pauseOnBattery: false
-    property bool pauseOnWindowOverlap: true
-    property string hwDecoder: "none"
+    Settings {
+        id: pauserSettings
+        category: "WallpaperPauser"
+        property bool pauseOnBattery: false
+        property bool pauseOnWindowOverlap: true
+        property string hwDecoder: "none"
+    }
+
+    property alias pauseOnBattery: pauserSettings.pauseOnBattery
+    property alias pauseOnWindowOverlap: pauserSettings.pauseOnWindowOverlap
+    property alias hwDecoder: pauserSettings.hwDecoder
     property bool paused: false
     property bool _loaded: false
-    property bool _windowLoaded: false
-    property bool _hwDecoderLoaded: false
-
-    Process {
-        id: loadProcess
-        command: ["cat", Quickshell.env("HOME") + "/.cache/caelestia/pauseOnBattery.txt"]
-        running: true
-        stdout: SplitParser {
-            onRead: data => {
-                root.pauseOnBattery = (data.trim() === "true");
-                root._loaded = true;
-                recalcTimer.restart();
-            }
-        }
-        onExited: {
-            if (!root._loaded) {
-                root._loaded = true;
-                recalcTimer.restart();
-            }
-        }
-    }
-
-    Process {
-        id: saveProcess
-    }
-
-    Process {
-        id: loadWindowProcess
-        command: ["cat", Quickshell.env("HOME") + "/.cache/caelestia/pauseOnWindowOverlap.txt"]
-        running: true
-        stdout: SplitParser {
-            onRead: data => {
-                root.pauseOnWindowOverlap = (data.trim() !== "false");
-                root._windowLoaded = true;
-                recalcTimer.restart();
-            }
-        }
-        onExited: {
-            if (!root._windowLoaded) {
-                root._windowLoaded = true;
-                recalcTimer.restart();
-            }
-        }
-    }
-
-    Process {
-        id: saveWindowProcess
-    }
-
-    Process {
-        id: loadHwDecoderProcess
-        command: ["cat", Quickshell.env("HOME") + "/.cache/caelestia/hwDecoder.txt"]
-        running: true
-        stdout: SplitParser {
-            onRead: data => {
-                const text = data.trim();
-                if (text) root.hwDecoder = text;
-                root._hwDecoderLoaded = true;
-            }
-        }
-        onExited: {
-            if (!root._hwDecoderLoaded) {
-                root._hwDecoderLoaded = true;
-            }
-        }
-    }
 
     Process {
         id: saveHwDecoderProcess
     }
 
-    function saveSetting() {
-        saveProcess.command = ["sh", "-c", "echo '" + root.pauseOnBattery + "' > ~/.cache/caelestia/pauseOnBattery.txt"];
-        saveProcess.running = true;
-    }
-
-    function saveWindowSetting() {
-        saveWindowProcess.command = ["sh", "-c", "echo '" + root.pauseOnWindowOverlap + "' > ~/.cache/caelestia/pauseOnWindowOverlap.txt"];
-        saveWindowProcess.running = true;
-    }
-
-    function saveHwDecoderSetting() {
-        saveHwDecoderProcess.command = ["sh", "-c", "echo '" + root.hwDecoder + "' > ~/.cache/caelestia/hwDecoder.txt && nohup sh -c 'sleep 0.5 && caelestia shell -d' >/dev/null 2>&1 & caelestia shell -k"];
-        saveHwDecoderProcess.running = true;
-    }
-
     function recalculate() {
-        if (!_loaded)
-            return;
-
         let newPaused = false;
         let reason = "None";
 
@@ -130,7 +55,6 @@ Singleton {
                     reason = "2+ windows (" + toplevels.length + " total)";
                 } else {
                     // Rule #2 — 70% of monitor area
-                    const monitor = Hyprland.focusedMonitor;
                     if (monitor) {
                         const screen = Quickshell.screens.find(s => s.name === monitor.name);
                         if (screen) {
@@ -178,22 +102,24 @@ Singleton {
     }
 
     onPauseOnBatteryChanged: {
-        if (_loaded) {
-            saveSetting();
-            recalculate();
-        }
+        recalculate();
     }
 
     onPauseOnWindowOverlapChanged: {
-        if (_windowLoaded) {
-            saveWindowSetting();
-            recalculate();
-        }
+        recalculate();
     }
 
     onHwDecoderChanged: {
-        if (_hwDecoderLoaded) {
-            saveHwDecoderSetting();
+        // We still need to sync this to a text file because the python CLI needs to read it
+        // BEFORE the Qt application starts in order to inject the environment variables.
+        if (root._loaded) {
+            saveHwDecoderProcess.command = ["sh", "-c", "echo '" + root.hwDecoder + "' > ~/.cache/caelestia/hwDecoder.txt"];
+            saveHwDecoderProcess.running = true;
         }
+    }
+
+    Component.onCompleted: {
+        root._loaded = true;
+        recalculate();
     }
 }
