@@ -1,0 +1,181 @@
+diff a/modules/background/Wallpaper.qml b/modules/background/Wallpaper.qml	(rejected hunks)
+@@ -12,26 +12,83 @@ Item {
+     id: root
+ 
+     property string source: Wallpapers.current
+-    property CachingImage current
++    property Image current: one
+     property bool completed
++    readonly property bool sourceIsVideo: Wallpapers.isVideo(source)
++    readonly property url videoSource: sourceIsVideo ? toFileUrl(source) : ""
++
++    function fileExtension(path) {
++        const clean = String(path || "").split(/[?#]/)[0].toLowerCase();
++        const index = clean.lastIndexOf(".");
++        return index >= 0 ? clean.slice(index + 1) : "";
++    }
++
++    function toFileUrl(path) {
++        const clean = String(path || "").trim();
++
++        if (!clean)
++            return "";
++        if (clean.indexOf("file://") === 0)
++            return clean;
++        if (clean[0] === "/")
++            return "file://" + clean;
++
++        return Qt.resolvedUrl(clean);
++    }
++
++    Timer {
++        id: videoUpdateTimer
++        interval: 50
++        repeat: false
++        onTriggered: {
++            if (videoLoader.item && root.sourceIsVideo) {
++                videoLoader.item.videoSource = root.videoSource;
++                videoLoader.item.autoStart = !WallpaperPauser.paused;
++            }
++        }
++    }
++
++    Connections {
++        target: WallpaperPauser
++        ignoreUnknownSignals: true
++        function onPausedChanged() {
++            if (videoLoader.item && root.sourceIsVideo) {
++                videoLoader.item.autoStart = !WallpaperPauser.paused;
++                if (WallpaperPauser.paused) {
++                    videoLoader.item.pause();
++                } else {
++                    videoLoader.item.play();
++                }
++            }
++        }
++    }
+ 
+     onSourceChanged: {
+-        if (!source)
++        if (sourceIsVideo) {
+             current = null;
+-        else
+-            current = imgComp.createObject(this, {
+-                path: source
+-            });
++            videoUpdateTimer.restart();
++            if (current === one)
++                two.update();
++            else
++                one.update();
++        } else if (!source) {
++            current = null;
++        } else if (current === one) {
++            two.update();
++        } else {
++            one.update();
++        }
+     }
+ 
+     Component.onCompleted: {
+-        if (source)
++        if (sourceIsVideo) {
++            completed = true;
++        } else if (source) {
+             Qt.callLater(() => {
+-                current = imgComp.createObject(this, {
+-                    path: source
+-                });
++                one.update();
+                 completed = true;
+             });
++        }
+     }
+ 
+     Loader {
+@@ -100,34 +157,66 @@ Item {
+         }
+     }
+ 
+-    Component {
+-        id: imgComp
++    Img {
++        id: one
++    }
+ 
+-        CachingImage {
+-            id: img
++    Img {
++        id: two
++    }
+ 
+-            anchors.fill: parent
++    Loader {
++        id: videoLoader
+ 
+-            opacity: 0
++        anchors.fill: parent
++
++        active: root.sourceIsVideo
++        source: "VideoWallpaper.qml"
++
++        onLoaded: {
++            item.autoStart = true;
++            item.videoSource = root.videoSource;
++        }
++    }
+ 
+-            onStatusChanged: {
+-                if (status === Image.Ready)
+-                    anim.start();
++    component Img: CachingImage {
++        id: img
++
++        function update(): void {
++            const newPath = root.sourceIsVideo ? Wallpapers.getWallpaperThumb(root.source, Wallpapers.cacheBuster) : root.source;
++            if (path === newPath && source === newPath)
++                root.current = this;
++            else {
++                path = root.source; // Keep IUtils happy for static images
++                source = newPath;   // Override source directly
+             }
++        }
++
++        anchors.fill: parent
+ 
+-            Anim on opacity {
+-                id: anim
++        visible: !root.sourceIsVideo || (videoLoader.item && videoLoader.item.mediaStatus < 2)
++        opacity: 0
++        scale: Wallpapers.showPreview ? 1 : 0.8
+ 
+-                type: Anim.SlowEffects
+-                running: false
+-                from: 0
+-                to: 1
++        onStatusChanged: {
++            if (status === Image.Ready)
++                root.current = this;
++        }
++
++        states: State {
++            name: "visible"
++            when: root.current === img
++
++            PropertyChanges {
++                img.opacity: 1
++                img.scale: 1
+             }
++        }
+ 
+-            Timer {
+-                running: root.current !== img && root.current?.status === Image.Ready
+-                interval: anim.duration
+-                onTriggered: img.destroy()
++        transitions: Transition {
++            Anim {
++                target: img
++                properties: "opacity,scale"
+             }
+         }
+     }

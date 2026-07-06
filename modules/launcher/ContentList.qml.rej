@@ -1,0 +1,101 @@
+diff a/modules/launcher/ContentList.qml b/modules/launcher/ContentList.qml	(rejected hunks)
+@@ -99,21 +101,91 @@ Item {
+         anchors.bottom: parent.bottom
+         anchors.horizontalCenter: parent.horizontalCenter
+ 
+-        sourceComponent: WallpaperList {
+-            objectName: "launcherWallpaperList"
++        sourceComponent: ColumnLayout {
++            readonly property int count: listComp.count
++            spacing: Tokens.spacing.normal
++            implicitWidth: listComp.implicitWidth
++
++            RowLayout {
++                Layout.alignment: Qt.AlignHCenter
++                spacing: Tokens.spacing.normal * 1.06
++
++                IconTextButton {
++                    icon: "image"
++                    text: qsTr("Static")
++                    font.pointSize: Tokens.font.size.small
++                    isRound: true
++                    horizontalPadding: Tokens.padding.medium
++                    verticalPadding: Tokens.padding.extraSmall
++                    type: Wallpapers.wallpaperMode === "static" ? IconTextButton.Filled : IconTextButton.Tonal
++                    onClicked: Wallpapers.setWallpaperMode("static")
++                }
++
++                IconTextButton {
++                    icon: "movie"
++                    text: qsTr("Animated")
++                    font.pointSize: Tokens.font.size.small
++                    isRound: true
++                    horizontalPadding: Tokens.padding.medium
++                    verticalPadding: Tokens.padding.extraSmall
++                    type: Wallpapers.wallpaperMode === "animated" ? IconTextButton.Filled : IconTextButton.Tonal
++                    onClicked: Wallpapers.setWallpaperMode("animated")
++                }
++
++                IconTextButton {
++                    icon: "refresh"
++                    text: qsTr("Refresh")
++                    font.pointSize: Tokens.font.size.small
++                    scale: 0.9
++                    isRound: true
++                    horizontalPadding: Tokens.padding.medium
++                    verticalPadding: Tokens.padding.extraSmall
++                    visible: Wallpapers.wallpaperMode === "animated"
++                    type: IconTextButton.Tonal
++                    onClicked: {
++                        Wallpapers.refreshAnimatedThumbs();
++                    }
++                }
++
++                Timer {
++                    id: processingDotsTimer
++                    running: Wallpapers._refreshing && Wallpapers.wallpaperMode === "animated"
++                    repeat: true
++                    interval: 400
++                    onTriggered: processingText.dotCount = (processingText.dotCount % 3) + 1;
++                }
++
++                Text {
++                    id: processingText
++                    font.pointSize: Tokens.font.size.small
++                    color: Colours.palette.m3secondary
++                    visible: processingDotsTimer.running
++                    Layout.alignment: Qt.AlignVCenter
++
++                    property int dotCount: 1
++                    text: "Processing" + ".".repeat(dotCount)
++                }
++            }
+ 
+-            search: root.search
+-            screenState: root.screenState
+-            panels: root.panels
+-            content: root.content
++            WallpaperList {
++                id: listComp
++                objectName: "launcherWallpaperList"
++                Layout.fillWidth: true
++                Layout.fillHeight: true
++                search: root.search
++                screenState: root.screenState
++                panels: root.panels
++                content: root.content
++            }
+         }
+     }
+ 
+     Row {
+         id: empty
+ 
+-        opacity: root.currentList?.count === 0 ? 1 : 0
+-        scale: root.currentList?.count === 0 ? 1 : 0.5
++        readonly property int count: root.currentList?.count ?? 0
++        opacity: count === 0 ? 1 : 0
++        scale: count === 0 ? 1 : 0.5
+ 
+         spacing: Tokens.spacing.medium
+         padding: Tokens.padding.large

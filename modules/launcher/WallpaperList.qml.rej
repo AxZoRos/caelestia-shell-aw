@@ -1,0 +1,38 @@
+diff a/modules/launcher/WallpaperList.qml b/modules/launcher/WallpaperList.qml	(rejected hunks)
+@@ -50,17 +50,31 @@ PathView {
+         readonly property string search: root.search.text.split(" ").slice(1).join(" ")
+ 
+         values: Wallpapers.query(search)
+-        onValuesChanged: root.currentIndex = search ? 0 : values.findIndex(w => w.path === Wallpapers.actualCurrent)
++        onValuesChanged: {
++            const idx = values.findIndex(w => w.path === Wallpapers.actualCurrent);
++            root.currentIndex = search ? 0 : Math.max(0, idx);
++        }
+     }
+ 
+-    Component.onCompleted: currentIndex = Wallpapers.list.findIndex(w => w.path === Wallpapers.actualCurrent)
++    Component.onCompleted: {
++        currentIndex = Math.max(0, Wallpapers.list.findIndex(w => w.path === Wallpapers.actualCurrent));
++    }
+     Component.onDestruction: Wallpapers.stopPreview()
+ 
+-    onCurrentItemChanged: {
+-        if (currentItem)
+-            Wallpapers.preview((currentItem as WallpaperItem).modelData.path);
++    Timer {
++        id: previewDebounce
++        interval: 100
++        repeat: false
++        onTriggered: {
++            if (!root || !scriptModel.values) return;
++            if (scriptModel.values[root.currentIndex]) {
++                Wallpapers.preview(scriptModel.values[root.currentIndex].path);
++            }
++        }
+     }
+ 
++    onCurrentIndexChanged: previewDebounce.restart()
++
+     implicitWidth: Math.min(numItems, count) * itemWidth
+     pathItemCount: numItems
+     cacheItemCount: 4
