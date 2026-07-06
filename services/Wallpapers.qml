@@ -135,6 +135,8 @@ Searcher {
             root.previewColourLock = false;
             if (root.isVideo(root.actualCurrent)) {
                 root.wallpaperMode = "animated";
+            } else {
+                root.wallpaperMode = "static";
             }
         }
         onLoadFailed: {
@@ -202,10 +204,7 @@ Searcher {
         }
     }
 
-    function updateWallpapers() {
-        staticWallpapers.update();
-        animatedWallpapers.update();
-    }
+    // Removed invalid updateWallpapers function
 
     function refreshAnimatedThumbs() {
         if (_refreshing) return;
@@ -222,7 +221,6 @@ Searcher {
             root._refreshing = false;
             root.cacheBuster = Date.now().toString();
             root.restoreWallpaperMode = true;
-            root.updateWallpapers();
         }
     }
 }
