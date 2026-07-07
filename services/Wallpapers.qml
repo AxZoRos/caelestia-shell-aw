@@ -31,7 +31,7 @@ Searcher {
         for (let i = 0; i < s.length; i++) {
             h = (h * 33 + s.charCodeAt(i)) >>> 0;
         }
-        return h.toString(16);
+        return h.toString(10);
     }
 
     function getWallpaperThumb(path, buster) {
@@ -192,9 +192,11 @@ Searcher {
             let changed = false;
             const now = Date.now().toString();
             for (let i = 0; i < lines.length; i++) {
-                const line = lines[i].trim();
+                let line = lines[i].trim();
+                if (line.indexOf("file://") === 0) line = line.substring(7);
                 if (line && !newBusters[line]) {
                     newBusters[line] = now;
+                    newBusters["file://" + line] = now;
                     changed = true;
                 }
             }
