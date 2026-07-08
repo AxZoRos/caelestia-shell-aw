@@ -174,7 +174,7 @@ Item {
         source: "VideoWallpaper.qml"
 
         onLoaded: {
-            item.autoStart = true;
+            item.autoStart = !WallpaperPauser.paused;
             item.videoSource = root.videoSource;
         }
     }
