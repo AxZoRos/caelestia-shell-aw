@@ -22,7 +22,7 @@ Item {
     required property int rounding
 
     readonly property bool showWallpapers: search.text.startsWith(`${GlobalConfig.launcher.actionPrefix}wallpaper `)
-    readonly property var currentList: showWallpapers ? wallpaperList.item : appList.item // Can be either ListView or PathView, so can't type properly
+    readonly property var currentList: showWallpapers ? (wallpaperList.item ? wallpaperList.item.realList : null) : appList.item
     property string animState: showWallpapers ? "wallpapers" : "apps"
 
     anchors.horizontalCenter: parent.horizontalCenter
@@ -102,6 +102,7 @@ Item {
         anchors.horizontalCenter: parent.horizontalCenter
 
         sourceComponent: ColumnLayout {
+            readonly property var realList: listComp
             readonly property int count: listComp.count
             spacing: Tokens.spacing.normal
             implicitWidth: listComp.implicitWidth

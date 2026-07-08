@@ -184,12 +184,19 @@ Item {
 
         function update(): void {
             const newPath = root.sourceIsVideo ? Wallpapers.getWallpaperThumb(root.source, Wallpapers.cacheBuster) : root.source;
-            if (path === newPath && source === newPath)
+            
+            if (!root.sourceIsVideo && path === root.source) {
                 root.current = this;
-            else {
-                path = root.source; // Keep IUtils happy for static images
-                source = newPath;   // Override source directly
+                return;
             }
+
+            if (root.sourceIsVideo && path === root.source && source === newPath) {
+                root.current = this;
+                return;
+            }
+
+            path = root.source;
+            source = newPath;
         }
 
         anchors.fill: parent
