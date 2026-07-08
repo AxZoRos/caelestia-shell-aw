@@ -107,6 +107,22 @@ Singleton {
         onTriggered: root.recalculate()
     }
 
+    // Startup timer to ensure we catch the asynchronously loaded Hyprland and Quickshell state
+    Timer {
+        id: startupTimer
+        interval: 1000
+        repeat: true
+        running: true
+        property int attempts: 0
+        onTriggered: {
+            root.recalculate();
+            attempts++;
+            if (attempts >= 5) {
+                running = false;
+            }
+        }
+    }
+
     onPauseOnBatteryChanged: {
         recalculate();
     }
