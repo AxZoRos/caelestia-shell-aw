@@ -28,6 +28,18 @@ Searcher {
     // Track and restore the last used wallpaper per mode using low-overhead execution
     property string lastStatic: ""
     property string lastAnimated: ""
+    Timer {
+        id: colorReleaseTimer
+        interval: 200 // Safe buffer for Python to write system color templates
+        repeat: false
+        onTriggered: {
+            // Safety check: only clear the preview if no new lock has been engaged
+            if (!previewColourLock && pendingPreviewClear) {
+                Colours.showPreview = false;
+                pendingPreviewClear = false;
+            }
+        }
+     }
     onWallpaperModeChanged: {
         if (wallpaperMode === "animated" && lastAnimated !== "" && !isVideo(actualCurrent)) {
             actualCurrent = lastAnimated;
@@ -79,12 +91,15 @@ Searcher {
         let clean = String(path || "").split(/[?#]/)[0];
         if (clean.indexOf("file://") === 0) clean = clean.substring(7);
         actualCurrent = clean;
+
+        // Hold the preview palette locked while the backend executes
+        previewColourLock = true;
+        pendingPreviewClear = false;
         
         if (isVideo(clean)) {
             lastAnimated = clean;
             // Save animated path to disk
             Quickshell.execDetached(["sh", "-c", "echo '" + clean + "' > '" + Paths.state + "/wallpaper/last_animated.txt'"]);
-            previewColourLock = false;
             stopPreview();
         } else {
            lastStatic = clean;
@@ -114,8 +129,9 @@ Searcher {
     }
 
     onPreviewColourLockChanged: {
-        if (!previewColourLock && pendingPreviewClear)
-            Colours.showPreview = false;
+        if (!previewColourLock && pendingPreviewClear){
+        	 colorReleaseTimer.restart();
+        }  
     }
 
     list: wallpaperMode === "animated" ? animatedWallpapers.entries : staticWallpapers.entries
