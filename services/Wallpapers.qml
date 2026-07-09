@@ -79,12 +79,17 @@ Searcher {
         let clean = String(path || "").split(/[?#]/)[0];
         if (clean.indexOf("file://") === 0) clean = clean.substring(7);
         actualCurrent = clean;
+        
         if (isVideo(clean)) {
             lastAnimated = clean;
+            // Save animated path to disk
+            Quickshell.execDetached(["sh", "-c", "echo '" + clean + "' > '" + Paths.state + "/wallpaper/last_animated.txt'"]);
             previewColourLock = false;
             stopPreview();
         } else {
            lastStatic = clean;
+           // Save static path to disk
+           Quickshell.execDetached(["sh", "-c", "echo '" + clean + "' > '" + Paths.state + "/wallpaper/last_static.txt'"]);
         }
         
         Quickshell.execDetached(["caelestia", "wallpaper", "-f", clean, ...smartArg]);
@@ -150,12 +155,10 @@ Searcher {
             root.actualCurrent = wall;
             root.previewColourLock = false;
 
-            // Prime state memory slots on boot to avoid initialization loops
+            // Set initial wallpaper mode based on current file type on boot
             if (root.isVideo(root.actualCurrent)) {
-                root.lastAnimated = root.actualCurrent;
                 wallpaperMode = "animated";
             } else {
-                root.lastStatic = root.actualCurrent;
                 wallpaperMode = "static";
             }
         }
@@ -164,6 +167,20 @@ Searcher {
             root.previewColourLock = false;
             Quickshell.execDetached(["caelestia", "wallpaper", "-f", root.fallback, ...root.smartArg]);
         }
+    }
+
+    // Read persisted static wallpaper state on startup
+    FileView {
+        path: `${Paths.state}/wallpaper/last_static.txt`
+        printErrors: false
+        onLoaded: root.lastStatic = text().trim()
+    }
+    
+    // Read persisted animated wallpaper state on startup
+    FileView {
+        path: `${Paths.state}/wallpaper/last_animated.txt`
+        printErrors: false
+        onLoaded: root.lastAnimated = text().trim()
     }
 
     FileSystemModel {
