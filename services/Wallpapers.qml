@@ -25,6 +25,18 @@ Searcher {
     readonly property list<string> validVideoExtensions: ["mp4", "webm", "mkv"]
     property string wallpaperMode: "static"
     property string cacheBuster: ""
+    // Track and restore the last used wallpaper per mode using low-overhead execution
+    property string lastStatic: ""
+    property string lastAnimated: ""
+    onWallpaperModeChanged: {
+        if (wallpaperMode === "animated" && lastAnimated !== "" && !isVideo(actualCurrent)) {
+            actualCurrent = lastAnimated;
+            Quickshell.execDetached(["caelestia", "wallpaper", "-f", lastAnimated, "--no-smart"]);
+        } else if (wallpaperMode === "static" && lastStatic !== "" && isVideo(actualCurrent)) {
+            actualCurrent = lastStatic;
+            Quickshell.execDetached(["caelestia", "wallpaper", "-f", lastStatic, "--no-smart"]);
+        }
+    }
 
     function djb2_hash(s) {
         let h = 5381;
@@ -68,9 +80,13 @@ Searcher {
         if (clean.indexOf("file://") === 0) clean = clean.substring(7);
         actualCurrent = clean;
         if (isVideo(clean)) {
+            lastAnimated = clean;
             previewColourLock = false;
             stopPreview();
+        } else {
+           lastStatic = clean;
         }
+        
         Quickshell.execDetached(["caelestia", "wallpaper", "-f", clean, ...smartArg]);
     }
 
@@ -133,10 +149,14 @@ Searcher {
             }
             root.actualCurrent = wall;
             root.previewColourLock = false;
+
+            // Prime state memory slots on boot to avoid initialization loops
             if (root.isVideo(root.actualCurrent)) {
-                root.wallpaperMode = "animated";
+                root.lastAnimated = root.actualCurrent;
+                wallpaperMode = "animated";
             } else {
-                root.wallpaperMode = "static";
+                root.lastStatic = root.actualCurrent;
+                wallpaperMode = "static";
             }
         }
         onLoadFailed: {
