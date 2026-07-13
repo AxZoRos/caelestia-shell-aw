@@ -72,7 +72,7 @@ Item {
 
         Timer {
             id: resourceCleanerTimer
-            interval: 300 // Covers crossfade windows with a safe overhead margin
+            interval: 250
             repeat: false
             onTriggered: img.renderActive = false
         }
@@ -96,9 +96,8 @@ Item {
 
         anchors.fill: parent
         z: root.current === img ? 1 : 0
-        opacity: 0 // Initialized to 0, fully driven by states below
+        opacity: 0 
 
-        // --- NATIVE STATE MACHINE ARCHITECTURE ---
         states: [
             State {
                 name: "visible"
@@ -115,14 +114,13 @@ Item {
         transitions: [
             Transition {
                 from: "hidden"; to: "visible"
-                // Smoothly fades in the incoming wallpaper layer (bypassed in heavy mask mode)
                 NumberAnimation { property: "opacity"; duration: img.animsEnabled ? 0 : 250; easing.type: Easing.InOutQuad }
             },
             Transition {
                 from: "visible"; to: "hidden"
-                // Holds the outgoing background layer completely solid until the top layer arrives
                 SequentialAnimation {
-                    PauseAnimation { duration: img.animsEnabled ? 0 : 300 }
+                    // Perfectly synchronized with fade duration to prevent double-decoding runtime penalty
+                    PauseAnimation { duration: img.animsEnabled ? 0 : 250 }
                     PropertyAction { property: "opacity" }
                 }
             }
@@ -151,7 +149,7 @@ Item {
             } else {
                 resourceCleanerTimer.start(); 
                 if (animsEnabled) {
-                    maskRadius = maxRadius; // Locks geometry during heavy material reveals
+                    maskRadius = maxRadius; 
                     currentShape = shapes[Math.floor(Math.random() * shapes.length)];
                 }
             }
@@ -190,11 +188,12 @@ Item {
             id: contentItem
             anchors.fill: parent
 
-            // GPU Fix: Disables FBO context completely when the layer is idling in the background
-            layer.enabled: img.needsMask || (img.shouldRecolor && img.renderActive)
+            // GPU Fix: Releases offscreen FBO context instantly when layer hits 0 opacity
+            layer.enabled: (img.needsMask || (img.shouldRecolor && img.renderActive)) && img.opacity > 0
             layer.effect: MultiEffect {
                 maskEnabled: img.needsMask
-                maskSource: maskSourceItem
+                // Scene Graph optimization: unbinds shader dependency link when mask is idle
+                maskSource: img.needsMask ? maskSourceItem : null
 
                 shadowEnabled: img.needsMask && !img.isVideo
                 shadowColor: "black"; shadowBlur: 1.0; shadowVerticalOffset: 15; shadowHorizontalOffset: 5
@@ -206,10 +205,11 @@ Item {
                 readonly property string currentFlavourName: Colours.showPreview ? Colours.previewFlavour : Colours.flavour
                 contrast: (img.shouldRecolor && currentFlavourName === "hard") ? 0.45 : 0.0
 
-                Behavior on saturation { Anim { type: Anim.DefaultEffects } }
-                Behavior on colorization { Anim { type: Anim.DefaultEffects } }
-                Behavior on contrast { Anim { type: Anim.DefaultEffects } }
-                Behavior on colorizationColor { CAnim {} }
+                // Throttling: freezes interpolation curves on background layers to save CPU cycles
+                Behavior on saturation { enabled: root.current === img; Anim { type: Anim.DefaultEffects } }
+                Behavior on colorization { enabled: root.current === img; Anim { type: Anim.DefaultEffects } }
+                Behavior on contrast { enabled: root.current === img; Anim { type: Anim.DefaultEffects } }
+                Behavior on colorizationColor { enabled: root.current === img; CAnim {} }
             }
 
             CachingImage {
