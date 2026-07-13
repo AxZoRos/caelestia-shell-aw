@@ -1,6 +1,7 @@
 pragma Singleton
 
 import QtQuick
+import QtCore
 import Quickshell
 import Quickshell.Io
 import Caelestia.Config
@@ -16,6 +17,7 @@ Searcher {
     readonly property string fallback: Quickshell.shellPath("assets/wallpaper.webp")
 
     property bool showPreview: false
+    property bool enableAnimation: true
     readonly property string current: showPreview ? previewPath : actualCurrent
     property string previewPath
     property string actualCurrent
@@ -48,6 +50,12 @@ Searcher {
             actualCurrent = lastStatic;
             Quickshell.execDetached(["caelestia", "wallpaper", "-f", lastStatic, "--no-smart"]);
         }
+    }
+
+    Settings {
+        id: wallpaperSettings
+        category: "Wallpapers"
+        property alias enableAnimation: root.enableAnimation
     }
 
     function djb2_hash(s) {
