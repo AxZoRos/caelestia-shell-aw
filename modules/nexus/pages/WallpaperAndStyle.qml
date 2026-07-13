@@ -233,6 +233,15 @@ PageBase {
             Layout.topMargin: Tokens.spacing.extraSmall / 2 - parent.spacing
             Layout.fillWidth: true
 
+            text: qsTr("Enable wallpaper animations")
+            checked: Wallpapers.enableAnimation
+            onToggled: Wallpapers.enableAnimation = checked
+        }
+
+        ToggleRow {
+            Layout.topMargin: Tokens.spacing.extraSmall / 2 - parent.spacing
+            Layout.fillWidth: true
+
             text: qsTr("Transparency")
             subtext: qsTr("Base %1, layers %2").arg(Colours.transparency.base).arg(Colours.transparency.layers)
             checked: Colours.transparency.enabled
