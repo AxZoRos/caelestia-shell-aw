@@ -52,10 +52,18 @@ Searcher {
         }
     }
 
-    Settings {
-        id: wallpaperSettings
-        category: "Wallpapers"
-        property alias enableAnimation: root.enableAnimation
+    FileView {
+        path: `${Paths.state}/wallpaper/enable_animation.txt`
+        printErrors: false
+        onLoaded: {
+            const val = text().trim();
+            if (val === "0") root.enableAnimation = false;
+            else if (val === "1") root.enableAnimation = true;
+        }
+    }
+
+    onEnableAnimationChanged: {
+        Quickshell.execDetached(["sh", "-c", "mkdir -p '" + Paths.state + "/wallpaper' && echo '" + (enableAnimation ? "1" : "0") + "' > '" + Paths.state + "/wallpaper/enable_animation.txt'"]);
     }
 
     function djb2_hash(s) {
