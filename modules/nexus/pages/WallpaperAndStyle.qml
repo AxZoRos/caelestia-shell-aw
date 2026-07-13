@@ -145,7 +145,17 @@ PageBase {
                     id: wallImg
 
                     anchors.fill: parent
-                    source: Wallpapers.current
+                    source: {
+                    	const path = Wallpapers.current;
+                    	if (!path) return "";
+
+                    	if (Wallpapers.isVideo(path)) {
+                    		const thumb = Wallpapers.getWallpaperThumb(path, Wallpapers.cacheBuster);
+                    		return (typeof thumb === "string" && thumb !== "undefined") ? thumb : "";
+                    	}
+
+                    	return path;
+                    }
                     preventInit: wallIndicatorLoader.opacity > 0
                     fadeOutAnim: Anim.DefaultEffects
                     fadeInAnim: Anim.SlowEffects
