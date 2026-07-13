@@ -17,34 +17,55 @@ Item {
     property var current: null
     property bool completed
 
-    readonly property bool sourceIsVideo: Wallpapers.isVideo(source)
-
     function toFileUrl(path) {
-        const clean = String(path || "").trim();
-        if (!clean) return "";
+        if (!path || path === "undefined") return "";
+        const clean = String(path).trim();
         if (clean.indexOf("file://") === 0) return clean;
         if (clean[0] === "/") return "file://" + clean;
-        return Qt.resolvedUrl(clean).toString();
+        return Qt.resolvedUrl(clean);
     }
 
     onSourceChanged: {
         if (!source) {
+            one.state = "inactive";
+            two.state = "inactive";
             current = null;
             return;
         }
 
-        if (current === one)
-            two.update();
-        else
-            one.update();
+        let nextLayer = null;
+        let prevLayer = null;
+
+        if (one.state === "active") {
+            prevLayer = one;
+            nextLayer = two;
+        } else if (two.state === "active") {
+            prevLayer = two;
+            nextLayer = one;
+        } else {
+            prevLayer = null;
+            nextLayer = one;
+        }
+
+        if (nextLayer.state === "background") {
+            nextLayer.state = "inactive";
+        }
+
+        if (prevLayer) {
+            prevLayer.state = "background";
+        }
+
+        nextLayer.path = source;
+        nextLayer.state = "active";
+        root.current = nextLayer;
     }
 
     Component.onCompleted: {
         if (source) {
-            Qt.callLater(() => {
-                one.update();
-                completed = true;
-            });
+            one.path = source;
+            one.state = "active";
+            root.current = one;
+            completed = true;
         } else {
             completed = true;
         }
@@ -64,71 +85,76 @@ Item {
         id: img
 
         property string path: ""
+        state: "inactive" 
+        
         readonly property bool isVideo: Wallpapers.isVideo(path)
         readonly property bool animsEnabled: !!Wallpapers.enableAnimation
+        readonly property string verifiedPath: (path && path !== "undefined") ? path : ""
 
-        // Resource Guard: delays destruction of hidden background channels
-        property bool renderActive: true
-
-        Timer {
-            id: resourceCleanerTimer
-            interval: 250
-            repeat: false
-            onTriggered: img.renderActive = false
-        }
-
-        // Hot reload pipeline management
-        onPathChanged: {
-            if (videoChannelLoader.item && isVideo && path !== "") {
-                videoChannelLoader.item.autoStart = !WallpaperPauser.paused;
-                videoChannelLoader.item.videoSource = root.toFileUrl(path);
-                root.current = img;
-            }
-        }
-
-        function update(): void {
-            if (path === root.source) {
-                root.current = this;
-                return;
-            }
-            path = root.source;
-        }
+        property bool renderActive: false
 
         anchors.fill: parent
-        z: root.current === img ? 1 : 0
         opacity: 0 
+
+        Timer {
+            id: cleanupTimer
+            interval: 420 
+            repeat: false
+            onTriggered: img.state = "inactive"
+        }
 
         states: [
             State {
-                name: "visible"
-                when: root.current === img
-                PropertyChanges { target: img; opacity: 1 }
+                name: "active"
+                PropertyChanges { target: img; opacity: 1; z: 1; renderActive: true }
             },
             State {
-                name: "hidden"
-                when: root.current !== img
-                PropertyChanges { target: img; opacity: img.animsEnabled ? 1 : 0 }
+                name: "background"
+                PropertyChanges { target: img; opacity: 1; z: 0; renderActive: true }
+            },
+            State {
+                name: "inactive"
+                PropertyChanges { target: img; opacity: 0; z: 0; renderActive: false }
             }
         ]
 
         transitions: [
             Transition {
-                from: "hidden"; to: "visible"
-                NumberAnimation { property: "opacity"; duration: img.animsEnabled ? 0 : 250; easing.type: Easing.InOutQuad }
-            },
-            Transition {
-                from: "visible"; to: "hidden"
-                SequentialAnimation {
-                    // Perfectly synchronized with fade duration to prevent double-decoding runtime penalty
-                    PauseAnimation { duration: img.animsEnabled ? 0 : 250 }
-                    PropertyAction { property: "opacity" }
-                }
+                from: "inactive"; to: "active"
+                enabled: root.completed
+                NumberAnimation { property: "opacity"; duration: 400; easing.type: Easing.InOutQuad }
             }
         ]
+
+        onStateChanged: {
+            if (state === "active") {
+                cleanupTimer.stop();
+                if (animsEnabled && root.completed) {
+                    maskRadius = 0;
+                    maskAnim.restart();
+                } else {
+                    maskRadius = maxRadius;
+                }
+            } else if (state === "background") {
+                cleanupTimer.restart(); 
+                if (animsEnabled) {
+                    maskRadius = maxRadius;
+                    currentShape = shapes[Math.floor(Math.random() * shapes.length)];
+                }
+            } else {
+                cleanupTimer.stop();
+            }
+        }
 
         readonly property real maxRadius: Math.sqrt(width * width + height * height)
         property real maskRadius: 0
         property int currentShape: MaterialShape.Circle
+
+        onMaxRadiusChanged: {
+            if (!root.completed || (!maskAnim.running && (state === "active" || state === "background"))) {
+                maskRadius = maxRadius;
+            }
+        }
 
         readonly property var shapes: [
             MaterialShape.Circle, MaterialShape.Square, MaterialShape.Diamond,
@@ -138,22 +164,6 @@ Item {
 
         readonly property bool needsMask: animsEnabled && img.z === 1 && img.maskRadius < img.maxRadius
 
-        onZChanged: {
-            if (z === 1) {
-                resourceCleanerTimer.stop();
-                img.renderActive = true; 
-                if (animsEnabled) {
-                    maskRadius = 0;
-                    maskAnim.restart();
-                }
-            } else {
-                resourceCleanerTimer.start(); 
-                if (animsEnabled) {
-                    maskRadius = maxRadius; 
-                    currentShape = shapes[Math.floor(Math.random() * shapes.length)];
-                }
-            }
-        }
         Component.onCompleted: maskRadius = maxRadius
 
         Item {
@@ -188,38 +198,35 @@ Item {
             id: contentItem
             anchors.fill: parent
 
-            // GPU Fix: Releases offscreen FBO context instantly when layer hits 0 opacity
-            layer.enabled: (img.needsMask || (img.shouldRecolor && img.renderActive)) && img.opacity > 0
+            layer.enabled: img.needsMask || (img.shouldRecolor && img.renderActive)
             layer.effect: MultiEffect {
                 maskEnabled: img.needsMask
-                // Scene Graph optimization: unbinds shader dependency link when mask is idle
-                maskSource: img.needsMask ? maskSourceItem : null
+                maskSource: maskSourceItem
 
                 shadowEnabled: img.needsMask && !img.isVideo
                 shadowColor: "black"; shadowBlur: 1.0; shadowVerticalOffset: 15; shadowHorizontalOffset: 5
 
                 saturation: (img.shouldRecolor && img.isDynamicMonochrome) ? -1 : 0
                 colorization: (img.shouldRecolor && !img.isDynamicMonochrome) ? Config.background.wallpaperRecolorStrength : 0
-                colorizationColor: Colours.palette.m3primary
+                colorizationColor: Colours.palette.m3primary ?? "transparent"
                 
-                readonly property string currentFlavourName: Colours.showPreview ? Colours.previewFlavour : Colours.flavour
+                readonly property string currentFlavourName: (Colours.showPreview ? Colours.previewFlavour : Colours.flavour) ?? ""
                 contrast: (img.shouldRecolor && currentFlavourName === "hard") ? 0.45 : 0.0
 
-                // Throttling: freezes interpolation curves on background layers to save CPU cycles
-                Behavior on saturation { enabled: root.current === img; Anim { type: Anim.DefaultEffects } }
-                Behavior on colorization { enabled: root.current === img; Anim { type: Anim.DefaultEffects } }
-                Behavior on contrast { enabled: root.current === img; Anim { type: Anim.DefaultEffects } }
-                Behavior on colorizationColor { enabled: root.current === img; CAnim {} }
+                Behavior on saturation { enabled: img.state === "active"; Anim { type: Anim.DefaultEffects } }
+                Behavior on colorization { enabled: img.state === "active"; Anim { type: Anim.DefaultEffects } }
+                Behavior on contrast { enabled: img.state === "active"; Anim { type: Anim.DefaultEffects } }
+                Behavior on colorizationColor { enabled: img.state === "active"; CAnim {} }
             }
 
             CachingImage {
                 anchors.fill: parent
-                path: img.path || ""
-                source: (img.path && img.path !== "") ? (img.isVideo ? (Wallpapers.getWallpaperThumb(img.path, Wallpapers.cacheBuster) || "") : (img.path || "")) : ""
-                visible: !img.isVideo || (videoChannelLoader.status !== Loader.Ready)
+                path: img.verifiedPath
+                source: (img.verifiedPath !== "") ? (img.isVideo ? (Wallpapers.getWallpaperThumb(img.verifiedPath, Wallpapers.cacheBuster) ?? "") : img.verifiedPath) : ""
+                visible: !img.isVideo || !videoChannelLoader.item || !videoChannelLoader.item.playing
                 asynchronous: true
                 onStatusChanged: {
-                    if (status === Image.Ready && !img.isVideo && img.path === root.source)
+                    if (status === Image.Ready && !img.isVideo && img.verifiedPath === root.source)
                         root.current = img;
                 }
             }
@@ -229,7 +236,7 @@ Item {
                 anchors.fill: parent
                 asynchronous: true
                 
-                active: img.isVideo && img.path !== "" && (root.current === img || img.path === root.source || img.renderActive)
+                active: img.isVideo && img.verifiedPath !== "" && img.renderActive
                 source: "VideoWallpaper.qml"
 
                 Connections {
@@ -240,7 +247,7 @@ Item {
                             if (WallpaperPauser.paused) {
                                 videoChannelLoader.item.pause();
                             } else {
-                                if (root.current === img) {
+                                if (img.state === "active") {
                                     videoChannelLoader.item.play();
                                 }
                             }
@@ -249,16 +256,14 @@ Item {
                 }
 
                 onLoaded: {
-                    if (img.path && img.path !== "") {
-                        item.videoSource = root.toFileUrl(img.path);
+                    if (item && img.verifiedPath !== "") {
+                        item.videoSource = root.toFileUrl(img.verifiedPath);
+                        item.autoStart = !WallpaperPauser.paused;
                     }
-                    item.autoStart = !WallpaperPauser.paused;
-                    root.current = img;
                 }
             }
         }
 
-        // Heavy profile shape reveal animator
         Anim {
             id: maskAnim
             target: img
