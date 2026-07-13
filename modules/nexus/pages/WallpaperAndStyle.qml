@@ -233,7 +233,7 @@ PageBase {
             Layout.topMargin: Tokens.spacing.extraSmall / 2 - parent.spacing
             Layout.fillWidth: true
 
-            text: qsTr("Enable wallpaper animations")
+            text: qsTr("Animate wallpaper transitions")
             checked: Wallpapers.enableAnimation
             onToggled: Wallpapers.enableAnimation = checked
         }
