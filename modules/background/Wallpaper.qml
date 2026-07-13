@@ -24,7 +24,7 @@ Item {
         if (!clean) return "";
         if (clean.indexOf("file://") === 0) return clean;
         if (clean[0] === "/") return "file://" + clean;
-        return Qt.resolvedUrl(clean);
+        return Qt.resolvedUrl(clean).toString();
     }
 
     onSourceChanged: {
@@ -33,7 +33,6 @@ Item {
             return;
         }
 
-        // Ping-pong channel switching to preload assets on a hidden layer
         if (current === one)
             two.update();
         else
@@ -66,11 +65,22 @@ Item {
 
         property string path: ""
         readonly property bool isVideo: Wallpapers.isVideo(path)
-        readonly property bool animsEnabled: Wallpapers.enableAnimation
+        readonly property bool animsEnabled: !!Wallpapers.enableAnimation
 
-        // Hot reload: updates source directly if the player is already active
+        // Resource Guard: controls delay cleaner for background structures
+        property bool renderActive: true
+
+        Timer {
+            id: resourceCleanerTimer
+            interval: 300 // Safe overhead margin covering fade timelines (250ms)
+            repeat: false
+            onTriggered: img.renderActive = false
+        }
+
+        // Hot reload pipeline management
         onPathChanged: {
             if (videoChannelLoader.item && isVideo && path !== "") {
+                videoChannelLoader.item.autoStart = !WallpaperPauser.paused;
                 videoChannelLoader.item.videoSource = root.toFileUrl(path);
                 root.current = img;
             }
@@ -86,16 +96,15 @@ Item {
 
         anchors.fill: parent
         z: root.current === img ? 1 : 0
+        
+        // Leaf-over-leaf crossfade structure
+        opacity: animsEnabled ? 1 : (root.current === img ? 1 : (root.current && root.current.opacity < 1 ? 1 : 0))
 
-        // Static 1 for masks, dynamic 1/0 toggling for eco fade
-        opacity: animsEnabled ? 1 : (root.current === img ? 1 : 0)
-
-        // Fallback blend transition for eco mode
         Behavior on opacity {
-            enabled: !img.animsEnabled
+            enabled: !img.animsEnabled && root.current === img
             NumberAnimation { duration: 250; easing.type: Easing.InOutQuad }
         }
-        
+
         readonly property real maxRadius: Math.sqrt(width * width + height * height)
         property real maskRadius: 0
         property int currentShape: MaterialShape.Circle
@@ -106,17 +115,22 @@ Item {
             MaterialShape.Clover4Leaf, MaterialShape.SoftBurst, MaterialShape.Cookie6Sided
         ]
 
-        // Enables mask pipeline only during active transition window
         readonly property bool needsMask: animsEnabled && img.z === 1 && img.maskRadius < img.maxRadius
 
         onZChanged: {
-            if (!animsEnabled) return; // Bypass mask triggers in eco mode
             if (z === 1) {
-                maskRadius = 0;
-                maskAnim.restart();
+                resourceCleanerTimer.stop();
+                img.renderActive = true; // Instantly restore textures on wake-up
+                if (animsEnabled) {
+                    maskRadius = 0;
+                    maskAnim.restart();
+                }
             } else {
-                maskRadius = 0;
-                currentShape = shapes[Math.floor(Math.random() * shapes.length)];
+                resourceCleanerTimer.start(); // Trigger deferred resource unloader
+                if (animsEnabled) {
+                    maskRadius = maxRadius;
+                    currentShape = shapes[Math.floor(Math.random() * shapes.length)];
+                }
             }
         }
         Component.onCompleted: maskRadius = maxRadius
@@ -140,6 +154,7 @@ Item {
             anchors.fill: parent
             hideSource: true
             live: img.needsMask
+            visible: img.needsMask
         }
 
         readonly property string currentSchemeName: Colours.showPreview ? Colours.previewScheme : Colours.scheme
@@ -152,12 +167,13 @@ Item {
             id: contentItem
             anchors.fill: parent
 
-            layer.enabled: img.needsMask || Config.background.wallpaperRecolor
+            // GPU Fix: Completely cuts FBO context generation when the layer finishes fading out
+            layer.enabled: img.needsMask || (img.shouldRecolor && img.renderActive)
             layer.effect: MultiEffect {
                 maskEnabled: img.needsMask
                 maskSource: maskSourceItem
 
-                shadowEnabled: img.needsMask
+                shadowEnabled: img.needsMask && !img.isVideo
                 shadowColor: "black"; shadowBlur: 1.0; shadowVerticalOffset: 15; shadowHorizontalOffset: 5
 
                 saturation: (img.shouldRecolor && img.isDynamicMonochrome) ? -1 : 0
@@ -175,9 +191,9 @@ Item {
 
             CachingImage {
                 anchors.fill: parent
-                path: img.path
-                source: img.isVideo ? Wallpapers.getWallpaperThumb(img.path, Wallpapers.cacheBuster) : img.path
-                visible: !img.isVideo || (videoChannelLoader.status !== Loader.Ready)
+                path: img.path || ""
+                source: (img.path && img.path !== "") ? (img.isVideo ? (Wallpapers.getWallpaperThumb(img.path, Wallpapers.cacheBuster) || "") : (img.path || "")) : ""
+                visible: !img.isVideo || !videoChannelLoader.item || !videoChannelLoader.item.playing
                 asynchronous: true
                 onStatusChanged: {
                     if (status === Image.Ready && !img.isVideo)
@@ -188,15 +204,10 @@ Item {
             Loader {
                 id: videoChannelLoader
                 anchors.fill: parent
-                // Async loading layout compilation to prevent UI micro-stutters
                 asynchronous: true
-
-                // Active state: holds player running until mask finishes (High) or purges instantly (Eco)
-                active: img.isVideo && (
-                    root.current === img || 
-                    img.path === root.source || 
-                    (img.animsEnabled && root.current && root.current.needsMask)
-                )
+                
+                // Keep background context streaming until transition finishes, then kill immediately
+                active: img.isVideo && img.path !== "" && (root.current === img || img.path === root.source || img.renderActive)
                 source: "VideoWallpaper.qml"
 
                 Connections {
@@ -216,14 +227,16 @@ Item {
                 }
 
                 onLoaded: {
-                    item.videoSource = root.toFileUrl(img.path);
+                    if (img.path && img.path !== "") {
+                        item.videoSource = root.toFileUrl(img.path);
+                    }
                     item.autoStart = !WallpaperPauser.paused;
                     root.current = img;
                 }
             }
         }
 
-        // Mask reveal animator
+        // Heavy profile shape reveal animator
         Anim {
             id: maskAnim
             target: img
