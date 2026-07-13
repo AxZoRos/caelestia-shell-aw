@@ -67,12 +67,12 @@ Item {
         readonly property bool isVideo: Wallpapers.isVideo(path)
         readonly property bool animsEnabled: !!Wallpapers.enableAnimation
 
-        // Resource Guard: controls delay cleaner for background structures
+        // Resource Guard: delays destruction of hidden background channels
         property bool renderActive: true
 
         Timer {
             id: resourceCleanerTimer
-            interval: 300 // Safe overhead margin covering fade timelines (250ms)
+            interval: 300 // Covers crossfade windows with a safe overhead margin
             repeat: false
             onTriggered: img.renderActive = false
         }
@@ -96,14 +96,37 @@ Item {
 
         anchors.fill: parent
         z: root.current === img ? 1 : 0
-        
-        // Leaf-over-leaf crossfade structure
-        opacity: animsEnabled ? 1 : (root.current === img ? 1 : (root.current && root.current.opacity < 1 ? 1 : 0))
+        opacity: 0 // Initialized to 0, fully driven by states below
 
-        Behavior on opacity {
-            enabled: !img.animsEnabled && root.current === img
-            NumberAnimation { duration: 250; easing.type: Easing.InOutQuad }
-        }
+        // --- NATIVE STATE MACHINE ARCHITECTURE ---
+        states: [
+            State {
+                name: "visible"
+                when: root.current === img
+                PropertyChanges { target: img; opacity: 1 }
+            },
+            State {
+                name: "hidden"
+                when: root.current !== img
+                PropertyChanges { target: img; opacity: img.animsEnabled ? 1 : 0 }
+            }
+        ]
+
+        transitions: [
+            Transition {
+                from: "hidden"; to: "visible"
+                // Smoothly fades in the incoming wallpaper layer (bypassed in heavy mask mode)
+                NumberAnimation { property: "opacity"; duration: img.animsEnabled ? 0 : 250; easing.type: Easing.InOutQuad }
+            },
+            Transition {
+                from: "visible"; to: "hidden"
+                // Holds the outgoing background layer completely solid until the top layer arrives
+                SequentialAnimation {
+                    PauseAnimation { duration: img.animsEnabled ? 0 : 300 }
+                    PropertyAction { property: "opacity" }
+                }
+            }
+        ]
 
         readonly property real maxRadius: Math.sqrt(width * width + height * height)
         property real maskRadius: 0
@@ -120,15 +143,15 @@ Item {
         onZChanged: {
             if (z === 1) {
                 resourceCleanerTimer.stop();
-                img.renderActive = true; // Instantly restore textures on wake-up
+                img.renderActive = true; 
                 if (animsEnabled) {
                     maskRadius = 0;
                     maskAnim.restart();
                 }
             } else {
-                resourceCleanerTimer.start(); // Trigger deferred resource unloader
+                resourceCleanerTimer.start(); 
                 if (animsEnabled) {
-                    maskRadius = maxRadius;
+                    maskRadius = maxRadius; // Locks geometry during heavy material reveals
                     currentShape = shapes[Math.floor(Math.random() * shapes.length)];
                 }
             }
@@ -167,7 +190,7 @@ Item {
             id: contentItem
             anchors.fill: parent
 
-            // GPU Fix: Completely cuts FBO context generation when the layer finishes fading out
+            // GPU Fix: Disables FBO context completely when the layer is idling in the background
             layer.enabled: img.needsMask || (img.shouldRecolor && img.renderActive)
             layer.effect: MultiEffect {
                 maskEnabled: img.needsMask
@@ -193,10 +216,10 @@ Item {
                 anchors.fill: parent
                 path: img.path || ""
                 source: (img.path && img.path !== "") ? (img.isVideo ? (Wallpapers.getWallpaperThumb(img.path, Wallpapers.cacheBuster) || "") : (img.path || "")) : ""
-                visible: !img.isVideo || !videoChannelLoader.item || !videoChannelLoader.item.playing
+                visible: !img.isVideo || (videoChannelLoader.status !== Loader.Ready)
                 asynchronous: true
                 onStatusChanged: {
-                    if (status === Image.Ready && !img.isVideo)
+                    if (status === Image.Ready && !img.isVideo && img.path === root.source)
                         root.current = img;
                 }
             }
@@ -206,7 +229,6 @@ Item {
                 anchors.fill: parent
                 asynchronous: true
                 
-                // Keep background context streaming until transition finishes, then kill immediately
                 active: img.isVideo && img.path !== "" && (root.current === img || img.path === root.source || img.renderActive)
                 source: "VideoWallpaper.qml"
 
