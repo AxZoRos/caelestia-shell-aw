@@ -14,9 +14,22 @@ Item {
     id: root
 
     property string source: Wallpapers.current
-    property var current: null
+    property Item current: null
     property bool completed
 
+    readonly property string currentSchemeName: (Colours.showPreview ? Colours.previewScheme : Colours.scheme) || ""
+    readonly property string currentVariantName: (Colours.showPreview ? Colours.previewVariant : Colours.variant) || ""
+    readonly property string currentFlavourName: (Colours.showPreview ? Colours.previewFlavour : Colours.flavour) || ""
+    readonly property bool isDynamicScheme: root.currentSchemeName.startsWith("dynamic")
+    readonly property bool isDynamicMonochrome: root.isDynamicScheme && root.currentVariantName === "monochrome"
+    readonly property bool shouldRecolor: !!(Config.background && Config.background.wallpaperRecolor) && (!root.isDynamicScheme || root.isDynamicMonochrome)
+
+    readonly property var shapes: [
+        MaterialShape.Circle, MaterialShape.Square, MaterialShape.Diamond,
+        MaterialShape.ClamShell, MaterialShape.Pentagon, MaterialShape.Gem,
+        MaterialShape.Clover4Leaf, MaterialShape.SoftBurst, MaterialShape.Cookie6Sided
+    ]
+    
     function toFileUrl(path) {
         if (!path || path === "undefined") return "";
         const clean = String(path).trim();
@@ -75,7 +88,7 @@ Item {
         asynchronous: true
         anchors.fill: parent
         active: root.completed && !root.source
-        sourceComponent: StyledRect { color: Colours.palette.m3surfaceContainer }
+        sourceComponent: StyledRect { color: (Colours.palette && Colours.palette.m3surfaceContainer) || "transparent" }
     }
 
     Img { id: one }
@@ -90,15 +103,18 @@ Item {
         readonly property bool isVideo: Wallpapers.isVideo(path)
         readonly property bool animsEnabled: !!Wallpapers.enableAnimation
         readonly property string verifiedPath: (path && path !== "undefined") ? path : ""
-
+        readonly property int fadeMs: 400
+        
         property bool renderActive: false
+        
+        readonly property bool isPlayerPlaying: !!(videoChannelLoader.item && videoChannelLoader.item.playing)
 
         anchors.fill: parent
         opacity: 0 
 
         Timer {
             id: cleanupTimer
-            interval: 420 
+            interval: img.fadeMs + 20
             repeat: false
             onTriggered: img.state = "inactive"
         }
@@ -122,7 +138,7 @@ Item {
             Transition {
                 from: "inactive"; to: "active"
                 enabled: root.completed
-                NumberAnimation { property: "opacity"; duration: 400; easing.type: Easing.InOutQuad }
+                NumberAnimation { property: "opacity"; duration: img.fadeMs; easing.type: Easing.InOutQuad }
             }
         ]
 
@@ -139,10 +155,46 @@ Item {
                 cleanupTimer.restart(); 
                 if (animsEnabled) {
                     maskRadius = maxRadius;
-                    currentShape = shapes[Math.floor(Math.random() * shapes.length)];
+                    currentShape = root.shapes[Math.floor(Math.random() * root.shapes.length)];
                 }
             } else {
                 cleanupTimer.stop();
+            }
+        }
+
+        Loader {
+            id: maskLoader
+            anchors.fill: parent
+            active: img.animsEnabled
+            
+            sourceComponent: Item {
+                id: maskContainer
+                anchors.fill: parent
+                
+                readonly property Item maskSource: maskSourceItem 
+
+                Item {
+                    id: maskWrapper
+                    anchors.fill: parent
+                    visible: img.needsMask
+                    MaterialShape {
+                        anchors.centerIn: parent
+                        width: img.maxRadius * 2
+                        height: img.maxRadius * 2
+                        shape: img.currentShape
+                        color: "white"
+                        scale: img.maxRadius > 0 ? (img.maskRadius / img.maxRadius) : 0
+                    }
+                }
+
+                ShaderEffectSource {
+                    id: maskSourceItem
+                    sourceItem: maskWrapper
+                    anchors.fill: parent
+                    hideSource: true
+                    live: img.needsMask
+                    visible: img.needsMask
+                }
             }
         }
 
@@ -155,76 +207,51 @@ Item {
                 maskRadius = maxRadius;
             }
         }
-
-        readonly property var shapes: [
-            MaterialShape.Circle, MaterialShape.Square, MaterialShape.Diamond,
-            MaterialShape.ClamShell, MaterialShape.Pentagon, MaterialShape.Gem,
-            MaterialShape.Clover4Leaf, MaterialShape.SoftBurst, MaterialShape.Cookie6Sided
-        ]
-
-        readonly property bool needsMask: animsEnabled && img.z === 1 && img.maskRadius < img.maxRadius
+        
+        readonly property bool needsMask: animsEnabled && img.z === 1 && img.maskRadius < (img.maxRadius - 1.5)
 
         Component.onCompleted: maskRadius = maxRadius
-
-        Item {
-            id: maskWrapper
-            anchors.fill: parent
-            visible: img.needsMask
-            MaterialShape {
-                anchors.centerIn: parent
-                width: 2000; height: 2000
-                shape: img.currentShape
-                color: "white"
-                scale: img.maxRadius > 0 ? (img.maskRadius * 2) / 2000 : 0
-            }
-        }
-
-        ShaderEffectSource {
-            id: maskSourceItem
-            sourceItem: maskWrapper
-            anchors.fill: parent
-            hideSource: true
-            live: img.needsMask
-            visible: img.needsMask
-        }
-
-        readonly property string currentSchemeName: Colours.showPreview ? Colours.previewScheme : Colours.scheme
-        readonly property string currentVariantName: Colours.showPreview ? Colours.previewVariant : Colours.variant
-        readonly property bool isDynamicScheme: currentSchemeName.startsWith("dynamic")
-        readonly property bool isDynamicMonochrome: isDynamicScheme && currentVariantName === "monochrome"
-        readonly property bool shouldRecolor: Config.background.wallpaperRecolor && (!isDynamicScheme || isDynamicMonochrome)
 
         Item {
             id: contentItem
             anchors.fill: parent
 
-            layer.enabled: img.needsMask || (img.shouldRecolor && img.renderActive)
+            layer.enabled: img.needsMask || (root.shouldRecolor && img.renderActive)
             layer.effect: MultiEffect {
                 maskEnabled: img.needsMask
-                maskSource: maskSourceItem
+                
+                maskSource: maskLoader.item ? maskLoader.item.maskSource : null
 
                 shadowEnabled: img.needsMask && !img.isVideo
                 shadowColor: "black"; shadowBlur: 1.0; shadowVerticalOffset: 15; shadowHorizontalOffset: 5
 
-                saturation: (img.shouldRecolor && img.isDynamicMonochrome) ? -1 : 0
-                colorization: (img.shouldRecolor && !img.isDynamicMonochrome) ? Config.background.wallpaperRecolorStrength : 0
-                colorizationColor: Colours.palette.m3primary ?? "transparent"
+                saturation: (root.shouldRecolor && root.isDynamicMonochrome) ? -1 : 0
+                colorization: (root.shouldRecolor && !root.isDynamicMonochrome) ? (Config.background ? Config.background.wallpaperRecolorStrength : 0) : 0
+                colorizationColor: (Colours.palette && Colours.palette.m3primary) || "transparent"
                 
-                readonly property string currentFlavourName: (Colours.showPreview ? Colours.previewFlavour : Colours.flavour) ?? ""
-                contrast: (img.shouldRecolor && currentFlavourName === "hard") ? 0.45 : 0.0
+                contrast: (root.shouldRecolor && root.currentFlavourName === "hard") ? 0.45 : 0.0
 
-                Behavior on saturation { enabled: img.state === "active"; Anim { type: Anim.DefaultEffects } }
-                Behavior on colorization { enabled: img.state === "active"; Anim { type: Anim.DefaultEffects } }
-                Behavior on contrast { enabled: img.state === "active"; Anim { type: Anim.DefaultEffects } }
-                Behavior on colorizationColor { enabled: img.state === "active"; CAnim {} }
+                Behavior on saturation { enabled: img.animsEnabled && img.state === "active"; Anim { type: Anim.DefaultEffects } }
+                Behavior on colorization { enabled: img.animsEnabled && img.state === "active"; Anim { type: Anim.DefaultEffects } }
+                Behavior on contrast { enabled: img.animsEnabled && img.state === "active"; Anim { type: Anim.DefaultEffects } }
+                Behavior on colorizationColor { enabled: img.animsEnabled && img.state === "active"; CAnim {} }
             }
 
             CachingImage {
                 anchors.fill: parent
                 path: img.verifiedPath
-                source: (img.verifiedPath !== "") ? (img.isVideo ? (Wallpapers.getWallpaperThumb(img.verifiedPath, Wallpapers.cacheBuster) ?? "") : img.verifiedPath) : ""
-                visible: !img.isVideo || !videoChannelLoader.item || !videoChannelLoader.item.playing
+                source: {
+                    if (img.verifiedPath === "") return "";
+                    if (img.isVideo) {
+                        const thumb = Wallpapers.getWallpaperThumb(img.verifiedPath, Wallpapers.cacheBuster);
+                        return (typeof thumb === "string" && thumb !== "undefined") ? thumb : "";
+                    }
+                    return img.verifiedPath;
+                }
+                
+                visible: !img.isVideo || !img.isPlayerPlaying
                 asynchronous: true
+
                 onStatusChanged: {
                     if (status === Image.Ready && !img.isVideo && img.verifiedPath === root.source)
                         root.current = img;
@@ -241,7 +268,9 @@ Item {
 
                 Connections {
                     target: WallpaperPauser
-                    ignoreUnknownSignals: true
+                    ignoreUnknownSignals: true  
+                    enabled: img.isVideo && videoChannelLoader.active
+                       
                     function onPausedChanged() {
                         if (videoChannelLoader.item && img.isVideo) {
                             if (WallpaperPauser.paused) {
