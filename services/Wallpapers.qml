@@ -27,6 +27,9 @@ Searcher {
     readonly property list<string> validVideoExtensions: ["mp4", "webm", "mkv"]
     property string wallpaperMode: "static"
     property string cacheBuster: ""
+    property string rollbackPath: ""
+    property string rollbackMode: ""
+    property bool isTrackingRollback: false
     // Track and restore the last used wallpaper per mode using low-overhead execution
     property string lastStatic: ""
     property string lastAnimated: ""
@@ -42,7 +45,18 @@ Searcher {
             }
         }
      }
+
+    function captureRollbackState() {
+        if (!isTrackingRollback) {
+            rollbackPath = actualCurrent;
+            rollbackMode = wallpaperMode;
+            isTrackingRollback = true;
+        }
+    }
+    
     onWallpaperModeChanged: {
+        captureRollbackState();
+        
         if (wallpaperMode === "animated" && lastAnimated !== "" && !isVideo(actualCurrent)) {
             actualCurrent = lastAnimated;
             Quickshell.execDetached(["caelestia", "wallpaper", "-f", lastAnimated, "--no-smart"]);
@@ -107,6 +121,7 @@ Searcher {
         let clean = String(path || "").split(/[?#]/)[0];
         if (clean.indexOf("file://") === 0) clean = clean.substring(7);
         actualCurrent = clean;
+        isTrackingRollback = false;
 
         // Hold the preview palette locked while the backend executes
         previewColourLock = true;
@@ -127,6 +142,8 @@ Searcher {
     }
 
     function preview(path: string): void {
+        captureRollbackState();
+        
         let clean = String(path || "").split(/[?#]/)[0];
         if (clean.indexOf("file://") === 0) clean = clean.substring(7);
         previewPath = clean;
@@ -138,6 +155,14 @@ Searcher {
 
     function stopPreview(): void {
         showPreview = false;
+        if (isTrackingRollback) {
+            wallpaperMode = rollbackMode;
+            actualCurrent = rollbackPath;
+            isTrackingRollback = false;
+            
+            Quickshell.execDetached(["caelestia", "wallpaper", "-f", rollbackPath, ...smartArg]);
+        }
+        
         if (previewColourLock)
             pendingPreviewClear = true;
         else
