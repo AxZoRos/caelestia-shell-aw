@@ -46,6 +46,17 @@ Searcher {
         }
      }
 
+    Timer {
+        id: previewDebounceTimer
+        interval: 100
+        repeat: false
+        onTriggered: {
+            if (getPreviewColoursProc.running) {
+                getPreviewColoursProc.running = false;
+            }
+            getPreviewColoursProc.running = true;
+        }
+    }
     function captureRollbackState() {
         if (!isTrackingRollback) {
             rollbackPath = actualCurrent;
@@ -149,8 +160,9 @@ Searcher {
         previewPath = clean;
         showPreview = true;
 
-        if (Colours.scheme === "dynamic")
-            getPreviewColoursProc.running = true;
+        if (String(Colours.scheme).startsWith("dynamic")) {
+            previewDebounceTimer.restart();
+        }
     }
 
     function stopPreview(): void {
