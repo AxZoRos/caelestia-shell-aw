@@ -52,7 +52,7 @@ Item {
             PropertyChanges {
                 root.implicitWidth: Math.max(root.Tokens.sizes.launcher.itemWidth * 1.2, wallpaperList.implicitWidth)
                 root.implicitHeight: root.Tokens.sizes.launcher.wallpaperHeight + 56
-                wallpaperList.active: true
+                wallpaperList.active: root.screenState.launcher
             }
         }
     ]
