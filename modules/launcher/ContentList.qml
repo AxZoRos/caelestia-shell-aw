@@ -52,7 +52,7 @@ Item {
             PropertyChanges {
                 root.implicitWidth: Math.max(root.Tokens.sizes.launcher.itemWidth * 1.2, wallpaperList.implicitWidth)
                 root.implicitHeight: root.Tokens.sizes.launcher.wallpaperHeight + 56
-                wallpaperList.active: root.screenState.launcher
+                wallpaperList.active: true
             }
         }
     ]
@@ -104,7 +104,7 @@ Item {
         sourceComponent: ColumnLayout {
             readonly property var realList: listComp
             readonly property int count: listComp.count
-            spacing: root.Tokens?.spacing?.normal ?? 10
+            spacing: root.Tokens.spacing.normal
             implicitWidth: listComp.implicitWidth
 
             RowLayout {
@@ -138,7 +138,7 @@ Item {
                     text: qsTr("Refresh")
                     font.pointSize: root.Tokens.font.size.small
                     isRound: true
-                    horizontalPadding: root.Tokens.padding.medium                    
+                    horizontalPadding: root.Tokens.padding.medium               
                     verticalPadding: root.Tokens.padding.extraSmall
                     visible: Wallpapers.wallpaperMode === "animated"
                     type: IconTextButton.Tonal
@@ -187,7 +187,7 @@ Item {
         opacity: count === 0 ? 1 : 0
         scale: count === 0 ? 1 : 0.5
 
-        spacing: root.Tokens.spacing.medium      
+        spacing: root.Tokens.spacing.medium
         padding: root.Tokens.padding.large
 
         anchors.horizontalCenter: parent.horizontalCenter
@@ -230,13 +230,11 @@ Item {
 
     Behavior on implicitWidth {
         enabled: root.screenState.launcher
-
         Anim {}
     }
 
     Behavior on implicitHeight {
         enabled: root.screenState.launcher
-
         Anim {}
     }
 }
