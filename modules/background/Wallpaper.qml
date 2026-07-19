@@ -16,6 +16,7 @@ Item {
     property string source: Wallpapers.current
     property Item current: null
     property bool completed
+    property string settledSource: ""
 
     readonly property string currentSchemeName: (Colours.showPreview ? Colours.previewScheme : Colours.scheme) || ""
     readonly property string currentVariantName: (Colours.showPreview ? Colours.previewVariant : Colours.variant) || ""
@@ -31,15 +32,28 @@ Item {
     ]
     
     function toFileUrl(path) {
-        if (!path || path === "undefined") return "";
+        if (!path) return "";
         const clean = String(path).trim();
         if (clean.indexOf("file://") === 0) return clean;
         if (clean[0] === "/") return "file://" + clean;
         return Qt.resolvedUrl(clean);
     }
 
+    Timer {
+        id: coalesceTimer
+        interval: 80
+        repeat: false
+        onTriggered: root.applySourceChange()
+    }
+
     onSourceChanged: {
-        if (!source) {
+        coalesceTimer.restart();
+    }
+
+   function applySourceChange() {
+        settledSource = source;
+        
+        if (!settledSource) {
             one.state = "inactive";
             two.state = "inactive";
             current = null;
@@ -68,14 +82,15 @@ Item {
             prevLayer.state = "background";
         }
 
-        nextLayer.path = source;
+        nextLayer.path = settledSource;
         nextLayer.state = "active";
         root.current = nextLayer;
     }
 
     Component.onCompleted: {
         if (source) {
-            one.path = source;
+            settledSource = source;
+            one.path = settledSource;
             one.state = "active";
             root.current = one;
             completed = true;
@@ -102,7 +117,7 @@ Item {
         
         readonly property bool isVideo: Wallpapers.isVideo(path)
         readonly property bool animsEnabled: !!Wallpapers.enableAnimation
-        readonly property string verifiedPath: (path && path !== "undefined") ? path : ""
+        readonly property string verifiedPath: path || ""
         readonly property int fadeMs: 400
         
         property bool renderActive: false
@@ -241,10 +256,10 @@ Item {
                 anchors.fill: parent
                 path: img.verifiedPath
                 source: {
-                    if (img.verifiedPath === "") return "";
+                    if (!img.verifiedPath) return "";
                     if (img.isVideo) {
                         const thumb = Wallpapers.getWallpaperThumb(img.verifiedPath, Wallpapers.cacheBuster);
-                        return (typeof thumb === "string" && thumb !== "undefined") ? thumb : "";
+                        return typeof thumb === "string" ? thumb : "";
                     }
                     return img.verifiedPath;
                 }
@@ -253,7 +268,7 @@ Item {
                 asynchronous: true
 
                 onStatusChanged: {
-                    if (status === Image.Ready && !img.isVideo && img.verifiedPath === root.source)
+                    if (status === Image.Ready && !img.isVideo && img.verifiedPath === root.settledSource)
                         root.current = img;
                 }
             }
