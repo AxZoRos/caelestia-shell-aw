@@ -12,17 +12,17 @@ import qs.services
 Singleton {
     id: root
 
+    property bool pauseOnBattery: false
+    property bool pauseOnWindowOverlap: true
+    property string hwDecoder: "none"
+
     Settings {
         id: pauserSettings
         category: "WallpaperPauser"
-        property bool pauseOnBattery: false
-        property bool pauseOnWindowOverlap: true
-        property string hwDecoder: "none"
+        property alias pauseOnBattery: root.pauseOnBattery
+        property alias pauseOnWindowOverlap: root.pauseOnWindowOverlap
+        property alias hwDecoder: root.hwDecoder
     }
-
-    property alias pauseOnBattery: pauserSettings.pauseOnBattery
-    property alias pauseOnWindowOverlap: pauserSettings.pauseOnWindowOverlap
-    property alias hwDecoder: pauserSettings.hwDecoder
     property bool paused: false
     property bool _loaded: false
     property string pauseReason: "None"
@@ -60,10 +60,10 @@ Singleton {
                             if (screenArea > 0) {
                                 const threshold = screenArea * 0.7;
                                 for (const t of toplevels) {
-                                    const size = t.lastIpcObject.size;
+                                    const size = t.lastIpcObject?.size;
                                     if (size && size.length >= 2 && size[0] * size[1] >= threshold) {
                                         newPaused = true;
-                                        reason = "70% area rule by: " + t.lastIpcObject.title + " (" + size[0] + "x" + size[1] + ")";
+                                        reason = "70% area rule by: " + (t.lastIpcObject?.title ?? "Unknown") + " (" + size[0] + "x" + size[1] + ")";
                                         break;
                                     }
                                 }
@@ -105,6 +105,22 @@ Singleton {
         id: recalcTimer
         interval: 50
         onTriggered: root.recalculate()
+    }
+
+    // Startup timer to ensure we catch the asynchronously loaded Hyprland and Quickshell state
+    Timer {
+        id: startupTimer
+        interval: 1000
+        repeat: true
+        running: true
+        property int attempts: 0
+        onTriggered: {
+            root.recalculate();
+            attempts++;
+            if (attempts >= 5) {
+                running = false;
+            }
+        }
     }
 
     onPauseOnBatteryChanged: {
