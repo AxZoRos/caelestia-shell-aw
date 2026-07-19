@@ -50,7 +50,11 @@ Item {
         coalesceTimer.restart();
     }
 
-   function applySourceChange() {
+    function applySourceChange() {
+        if (source === settledSource && root.current && root.current.state === "active") {
+            return;
+        }
+
         settledSource = source;
         
         if (!settledSource) {
