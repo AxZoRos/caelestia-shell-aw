@@ -45,18 +45,7 @@ Searcher {
             }
         }
      }
-
-    Timer {
-        id: previewDebounceTimer
-        interval: 100
-        repeat: false
-        onTriggered: {
-            if (getPreviewColoursProc.running) {
-                getPreviewColoursProc.running = false;
-            }
-            getPreviewColoursProc.running = true;
-        }
-    }
+    
     function captureRollbackState() {
         if (!isTrackingRollback) {
             rollbackPath = actualCurrent;
@@ -161,7 +150,10 @@ Searcher {
         showPreview = true;
 
         if (String(Colours.scheme).startsWith("dynamic")) {
-            previewDebounceTimer.restart();
+            if (getPreviewColoursProc.running) {
+                getPreviewColoursProc.running = false;
+            }
+            getPreviewColoursProc.running = true;
         }
     }
 
