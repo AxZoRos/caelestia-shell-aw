@@ -268,7 +268,7 @@ Item {
                     return img.verifiedPath;
                 }
                 
-                visible: !img.isVideo || !img.isPlayerPlaying
+                visible: !img.isVideo || (!img.isPlayerPlaying && videoChannelLoader.status !== Loader.Ready)
                 asynchronous: true
 
                 onStatusChanged: {
@@ -285,6 +285,18 @@ Item {
                 active: img.isVideo && img.verifiedPath !== "" && img.renderActive
                 source: "VideoWallpaper.qml"
 
+                Timer {
+                    id: resumeTimer
+                    interval: 150
+                    repeat: false
+                    onTriggered: {
+                        if (videoChannelLoader.item && img.isVideo && !WallpaperPauser.paused && img.state === "active") {
+                            videoChannelLoader.item.stop();
+                            videoChannelLoader.item.play();
+                        }
+                    }
+                }
+
                 Connections {
                     target: WallpaperPauser
                     ignoreUnknownSignals: true  
@@ -293,10 +305,11 @@ Item {
                     function onPausedChanged() {
                         if (videoChannelLoader.item && img.isVideo) {
                             if (WallpaperPauser.paused) {
+                                resumeTimer.stop();
                                 videoChannelLoader.item.pause();
                             } else {
                                 if (img.state === "active") {
-                                    videoChannelLoader.item.play();
+                                    resumeTimer.restart();
                                 }
                             }
                         }
