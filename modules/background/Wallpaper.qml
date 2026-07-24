@@ -17,7 +17,7 @@ Item {
     property string settledSource: ""
 
     readonly property string currentSchemeName: (Colours.showPreview ? Colours["previewScheme"] : Colours.scheme) || ""
-    readonly property string currentVariantName: (Colours.showPreview ? Colours["previewVariant"] : Colours["variant"]) || ""
+    readonly property string currentVariantName: (Colours.showPreview ? Colours["previewVariant"] : Colours.variant) || ""
     readonly property string currentFlavourName: (Colours.showPreview ? Colours["previewFlavour"] : Colours.flavour) || ""
     readonly property bool isDynamicScheme: root.currentSchemeName.startsWith("dynamic")
     readonly property bool isDynamicMonochrome: root.isDynamicScheme && root.currentVariantName === "monochrome"
@@ -128,23 +128,18 @@ Item {
         readonly property int fadeMs: 400
 
         property bool renderActive: false
-        property bool showVideoThumb: true
+        property bool pendingVideoAnim: false
 
         readonly property bool isPlayerPlaying: !!(videoChannelLoader.item && videoChannelLoader.item["playing"])
 
         anchors.fill: parent
         opacity: 0
 
-        Timer {
-            id: hideVideoThumbTimer
-            interval: 500
-            repeat: false
-            onTriggered: img.showVideoThumb = false
-        }
-
         onIsPlayerPlayingChanged: {
-            if (isPlayerPlaying && isVideo) {
-                hideVideoThumbTimer.restart();
+            if (isPlayerPlaying && pendingVideoAnim && isVideo && animsEnabled && state === "active") {
+                pendingVideoAnim = false;
+                maskRadius = 0;
+                maskAnim.restart();
             }
         }
 
@@ -198,25 +193,29 @@ Item {
         onStateChanged: {
             if (state === "active") {
                 cleanupTimer.stop();
-                showVideoThumb = true;
-                hideVideoThumbTimer.stop();
-
                 if (animsEnabled && root.completed) {
-                    maskRadius = 0;
-                    maskAnim.restart();
+                    if (isVideo) {
+                        pendingVideoAnim = true;
+                        maskRadius = 0;
+                    } else {
+                        pendingVideoAnim = false;
+                        maskRadius = 0;
+                        maskAnim.restart();
+                    }
                 } else {
+                    pendingVideoAnim = false;
                     maskRadius = maxRadius;
                 }
             } else if (state === "background") {
+                pendingVideoAnim = false;
                 cleanupTimer.restart();
                 if (animsEnabled) {
                     maskRadius = maxRadius;
                     currentShape = root.shapes[Math.floor(Math.random() * root.shapes.length)];
                 }
             } else {
+                pendingVideoAnim = false;
                 cleanupTimer.stop();
-                hideVideoThumbTimer.stop();
-                showVideoThumb = true;
             }
         }
 
@@ -251,7 +250,7 @@ Item {
                     anchors.fill: parent
                     hideSource: true
                     live: img.needsMask
-                    visible: img.needsMask
+                    visible: false
                 }
             }
         }
@@ -265,8 +264,9 @@ Item {
                 maskRadius = maxRadius;
             }
         }
-
-        readonly property bool needsMask: animsEnabled && img.z === 1 && img.maskRadius < (img.maxRadius - 1.5) && !!(maskLoader.item && maskLoader.item["maskSource"])
+        
+        readonly property bool hasReadyContent: isVideo ? isPlayerPlaying : (thumbImg.status === Image.Ready)
+        readonly property bool needsMask: animsEnabled && img.z === 1 && hasReadyContent && img.maskRadius < (img.maxRadius - 1.5) && !!maskLoader.item
 
         Component.onCompleted: maskRadius = maxRadius
 
@@ -278,7 +278,7 @@ Item {
             layer.effect: MultiEffect {
                 maskEnabled: img.needsMask
 
-                maskSource: maskLoader.item ? maskLoader.item["maskSource"] : null
+                maskSource: maskLoader.item ? maskLoader.item.maskSource : null
 
                 shadowEnabled: img.needsMask && !img.isVideo
                 shadowColor: "black"
@@ -317,21 +317,20 @@ Item {
             }
 
             CachingImage {
+                id: thumbImg
                 anchors.fill: parent
                 path: img.verifiedPath
                 source: {
                     if (!img.verifiedPath)
                         return "";
                     if (img.isVideo) {
-                        if (!img.showVideoThumb)
-                            return "";
                         const thumb = Wallpapers.getWallpaperThumb(img.verifiedPath, Wallpapers.cacheBuster);
                         return typeof thumb === "string" ? thumb : "";
                     }
                     return img.verifiedPath;
                 }
 
-                visible: source !== ""
+                visible: !img.isVideo || (!img.isPlayerPlaying && videoChannelLoader.status !== Loader.Ready)
                 asynchronous: true
 
                 onStatusChanged: {
