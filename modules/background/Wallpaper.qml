@@ -128,6 +128,7 @@ Item {
         readonly property int fadeMs: 400
 
         property bool renderActive: false
+        property bool showVideoThumb: true
 
         readonly property bool isPlayerPlaying: !!(videoChannelLoader.item && videoChannelLoader.item["playing"])
 
@@ -135,8 +136,21 @@ Item {
         opacity: 0
 
         Timer {
+            id: hideVideoThumbTimer
+            interval: 500
+            repeat: false
+            onTriggered: img.showVideoThumb = false
+        }
+
+        onIsPlayerPlayingChanged: {
+            if (isPlayerPlaying && isVideo) {
+                hideVideoThumbTimer.restart();
+            }
+        }
+
+        Timer {
             id: cleanupTimer
-            interval: img.fadeMs + 20
+            interval: (img.animsEnabled && root.completed) ? 2600 : (img.fadeMs + 20)
             repeat: false
             onTriggered: img.state = "inactive"
         }
@@ -184,6 +198,9 @@ Item {
         onStateChanged: {
             if (state === "active") {
                 cleanupTimer.stop();
+                showVideoThumb = true;
+                hideVideoThumbTimer.stop();
+
                 if (animsEnabled && root.completed) {
                     maskRadius = 0;
                     maskAnim.restart();
@@ -198,6 +215,8 @@ Item {
                 }
             } else {
                 cleanupTimer.stop();
+                hideVideoThumbTimer.stop();
+                showVideoThumb = true;
             }
         }
 
@@ -247,7 +266,7 @@ Item {
             }
         }
 
-        readonly property bool needsMask: animsEnabled && img.z === 1 && img.maskRadius < (img.maxRadius - 1.5)
+        readonly property bool needsMask: animsEnabled && img.z === 1 && img.maskRadius < (img.maxRadius - 1.5) && !!(maskLoader.item && maskLoader.item["maskSource"])
 
         Component.onCompleted: maskRadius = maxRadius
 
@@ -304,13 +323,15 @@ Item {
                     if (!img.verifiedPath)
                         return "";
                     if (img.isVideo) {
+                        if (!img.showVideoThumb)
+                            return "";
                         const thumb = Wallpapers.getWallpaperThumb(img.verifiedPath, Wallpapers.cacheBuster);
                         return typeof thumb === "string" ? thumb : "";
                     }
                     return img.verifiedPath;
                 }
 
-                visible: !img.isVideo || (!img.isPlayerPlaying && videoChannelLoader.status !== Loader.Ready)
+                visible: source !== ""
                 asynchronous: true
 
                 onStatusChanged: {
