@@ -5,10 +5,8 @@ import Caelestia.Config
 import QtQuick.Effects
 import M3Shapes
 import qs.components
-import qs.components.filedialog
 import qs.components.images
 import qs.services
-import qs.utils
 
 Item {
     id: root
@@ -18,12 +16,12 @@ Item {
     property bool completed
     property string settledSource: ""
 
-    readonly property string currentSchemeName: (Colours.showPreview ? Colours.previewScheme : Colours.scheme) || ""
-    readonly property string currentVariantName: (Colours.showPreview ? Colours.previewVariant : Colours.variant) || ""
-    readonly property string currentFlavourName: (Colours.showPreview ? Colours.previewFlavour : Colours.flavour) || ""
+    readonly property string currentSchemeName: (Colours.showPreview ? Colours["previewScheme"] : Colours.scheme) || ""
+    readonly property string currentVariantName: (Colours.showPreview ? Colours["previewVariant"] : Colours["variant"]) || ""
+    readonly property string currentFlavourName: (Colours.showPreview ? Colours["previewFlavour"] : Colours.flavour) || ""
     readonly property bool isDynamicScheme: root.currentSchemeName.startsWith("dynamic")
     readonly property bool isDynamicMonochrome: root.isDynamicScheme && root.currentVariantName === "monochrome"
-    readonly property bool shouldRecolor: !!(Config.background && Config.background.wallpaperRecolor) && (!root.isDynamicScheme || root.isDynamicMonochrome)
+    readonly property bool shouldRecolor: !!(Config.background && Config.background["wallpaperRecolor"]) && (!root.isDynamicScheme || root.isDynamicMonochrome)
 
     readonly property var shapes: [MaterialShape.Circle, MaterialShape.Square, MaterialShape.Diamond, MaterialShape.ClamShell, MaterialShape.Pentagon, MaterialShape.Gem, MaterialShape.Clover4Leaf, MaterialShape.SoftBurst, MaterialShape.Cookie6Sided]
 
@@ -131,7 +129,7 @@ Item {
 
         property bool renderActive: false
 
-        readonly property bool isPlayerPlaying: !!(videoChannelLoader.item && videoChannelLoader.item.playing)
+        readonly property bool isPlayerPlaying: !!(videoChannelLoader.item && videoChannelLoader.item["playing"])
 
         anchors.fill: parent
         opacity: 0
@@ -147,28 +145,25 @@ Item {
             State {
                 name: "active"
                 PropertyChanges {
-                    target: img
-                    opacity: 1
-                    z: 1
-                    renderActive: true
+                    img.opacity: 1
+                    img.z: 1
+                    img.renderActive: true
                 }
             },
             State {
                 name: "background"
                 PropertyChanges {
-                    target: img
-                    opacity: 1
-                    z: 0
-                    renderActive: true
+                    img.opacity: 1
+                    img.z: 0
+                    img.renderActive: true
                 }
             },
             State {
                 name: "inactive"
                 PropertyChanges {
-                    target: img
-                    opacity: 0
-                    z: 0
-                    renderActive: false
+                    img.opacity: 0
+                    img.z: 0
+                    img.renderActive: false
                 }
             }
         ]
@@ -264,7 +259,7 @@ Item {
             layer.effect: MultiEffect {
                 maskEnabled: img.needsMask
 
-                maskSource: maskLoader.item ? maskLoader.item.maskSource : null
+                maskSource: maskLoader.item ? maskLoader.item["maskSource"] : null
 
                 shadowEnabled: img.needsMask && !img.isVideo
                 shadowColor: "black"
@@ -273,7 +268,7 @@ Item {
                 shadowHorizontalOffset: 5
 
                 saturation: (root.shouldRecolor && root.isDynamicMonochrome) ? -1 : 0
-                colorization: (root.shouldRecolor && !root.isDynamicMonochrome) ? (Config.background ? Config.background.wallpaperRecolorStrength : 0) : 0
+                colorization: (root.shouldRecolor && !root.isDynamicMonochrome) ? (Config.background ? Config.background["wallpaperRecolorStrength"] : 0) : 0
                 colorizationColor: (Colours.palette && Colours.palette.m3primary) || "transparent"
 
                 contrast: (root.shouldRecolor && root.currentFlavourName === "hard") ? 0.45 : 0.0
@@ -338,8 +333,8 @@ Item {
                     repeat: false
                     onTriggered: {
                         if (videoChannelLoader.item && img.isVideo && !WallpaperPauser.paused && img.state === "active") {
-                            videoChannelLoader.item.stop();
-                            videoChannelLoader.item.play();
+                            videoChannelLoader.item["stop"]();
+                            videoChannelLoader.item["play"]();
                         }
                     }
                 }
@@ -353,7 +348,7 @@ Item {
                         if (videoChannelLoader.item && img.isVideo) {
                             if (WallpaperPauser.paused) {
                                 resumeTimer.stop();
-                                videoChannelLoader.item.pause();
+                                videoChannelLoader.item["pause"]();
                             } else {
                                 if (img.state === "active") {
                                     resumeTimer.restart();
