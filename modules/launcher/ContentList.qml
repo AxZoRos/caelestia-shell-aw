@@ -52,7 +52,7 @@ Item {
             PropertyChanges {
                 root.implicitWidth: Math.max(root.Tokens.sizes.launcher.itemWidth * 1.2, wallpaperList.implicitWidth)
                 root.implicitHeight: root.Tokens.sizes.launcher.wallpaperHeight + 56
-                wallpaperList.active: true
+                wallpaperList.active: root.screenState.launcher
             }
         }
     ]
@@ -138,7 +138,7 @@ Item {
                     text: qsTr("Refresh")
                     font.pointSize: root.Tokens.font.size.small
                     isRound: true
-                    horizontalPadding: root.Tokens.padding.medium               
+                    horizontalPadding: root.Tokens.padding.medium
                     verticalPadding: root.Tokens.padding.extraSmall
                     visible: Wallpapers.wallpaperMode === "animated"
                     type: IconTextButton.Tonal
@@ -152,7 +152,7 @@ Item {
                     running: Wallpapers._refreshing && Wallpapers.wallpaperMode === "animated"
                     repeat: true
                     interval: 400
-                    onTriggered: processingText.dotCount = (processingText.dotCount % 3) + 1;
+                    onTriggered: processingText.dotCount = (processingText.dotCount % 3) + 1
                 }
 
                 Text {

@@ -5,10 +5,8 @@ import Caelestia.Config
 import QtQuick.Effects
 import M3Shapes
 import qs.components
-import qs.components.filedialog
 import qs.components.images
 import qs.services
-import qs.utils
 
 Item {
     id: root
@@ -18,24 +16,23 @@ Item {
     property bool completed
     property string settledSource: ""
 
-    readonly property string currentSchemeName: (Colours.showPreview ? Colours.previewScheme : Colours.scheme) || ""
-    readonly property string currentVariantName: (Colours.showPreview ? Colours.previewVariant : Colours.variant) || ""
-    readonly property string currentFlavourName: (Colours.showPreview ? Colours.previewFlavour : Colours.flavour) || ""
+    readonly property string currentSchemeName: (Colours.showPreview ? Colours["previewScheme"] : Colours.scheme) || ""
+    readonly property string currentVariantName: (Colours.showPreview ? Colours["previewVariant"] : Colours.variant) || ""
+    readonly property string currentFlavourName: (Colours.showPreview ? Colours["previewFlavour"] : Colours.flavour) || ""
     readonly property bool isDynamicScheme: root.currentSchemeName.startsWith("dynamic")
     readonly property bool isDynamicMonochrome: root.isDynamicScheme && root.currentVariantName === "monochrome"
-    readonly property bool shouldRecolor: !!(Config.background && Config.background.wallpaperRecolor) && (!root.isDynamicScheme || root.isDynamicMonochrome)
+    readonly property bool shouldRecolor: !!(Config.background && Config.background["wallpaperRecolor"]) && (!root.isDynamicScheme || root.isDynamicMonochrome)
 
-    readonly property var shapes: [
-        MaterialShape.Circle, MaterialShape.Square, MaterialShape.Diamond,
-        MaterialShape.ClamShell, MaterialShape.Pentagon, MaterialShape.Gem,
-        MaterialShape.Clover4Leaf, MaterialShape.SoftBurst, MaterialShape.Cookie6Sided
-    ]
-    
+    readonly property var shapes: [MaterialShape.Circle, MaterialShape.Square, MaterialShape.Diamond, MaterialShape.ClamShell, MaterialShape.Pentagon, MaterialShape.Gem, MaterialShape.Clover4Leaf, MaterialShape.SoftBurst, MaterialShape.Cookie6Sided]
+
     function toFileUrl(path) {
-        if (!path) return "";
+        if (!path)
+            return "";
         const clean = String(path).trim();
-        if (clean.indexOf("file://") === 0) return clean;
-        if (clean[0] === "/") return "file://" + clean;
+        if (clean.indexOf("file://") === 0)
+            return clean;
+        if (clean[0] === "/")
+            return "file://" + clean;
         return Qt.resolvedUrl(clean);
     }
 
@@ -50,9 +47,13 @@ Item {
         coalesceTimer.restart();
     }
 
-   function applySourceChange() {
+    function applySourceChange() {
+        if (source === settledSource && root.current && root.current.state === "active") {
+            return;
+        }
+
         settledSource = source;
-        
+
         if (!settledSource) {
             one.state = "inactive";
             two.state = "inactive";
@@ -103,33 +104,48 @@ Item {
         asynchronous: true
         anchors.fill: parent
         active: root.completed && !root.source
-        sourceComponent: StyledRect { color: (Colours.palette && Colours.palette.m3surfaceContainer) || "transparent" }
+        sourceComponent: StyledRect {
+            color: (Colours.palette && Colours.palette.m3surfaceContainer) || "transparent"
+        }
     }
 
-    Img { id: one }
-    Img { id: two }
+    Img {
+        id: one
+    }
+    Img {
+        id: two
+    }
 
     component Img: Item {
         id: img
 
         property string path: ""
-        state: "inactive" 
-        
+        state: "inactive"
+
         readonly property bool isVideo: Wallpapers.isVideo(path)
         readonly property bool animsEnabled: !!Wallpapers.enableAnimation
         readonly property string verifiedPath: path || ""
         readonly property int fadeMs: 400
-        
+
         property bool renderActive: false
-        
-        readonly property bool isPlayerPlaying: !!(videoChannelLoader.item && videoChannelLoader.item.playing)
+        property bool pendingVideoAnim: false
+
+        readonly property bool isPlayerPlaying: !!(videoChannelLoader.item && videoChannelLoader.item["playing"])
 
         anchors.fill: parent
-        opacity: 0 
+        opacity: 0
+
+        onIsPlayerPlayingChanged: {
+            if (isPlayerPlaying && pendingVideoAnim && isVideo && animsEnabled && state === "active") {
+                pendingVideoAnim = false;
+                maskRadius = 0;
+                maskAnim.restart();
+            }
+        }
 
         Timer {
             id: cleanupTimer
-            interval: img.fadeMs + 20
+            interval: (img.animsEnabled && root.completed) ? 2600 : (img.fadeMs + 20)
             repeat: false
             onTriggered: img.state = "inactive"
         }
@@ -137,23 +153,40 @@ Item {
         states: [
             State {
                 name: "active"
-                PropertyChanges { target: img; opacity: 1; z: 1; renderActive: true }
+                PropertyChanges {
+                    img.opacity: 1
+                    img.z: 1
+                    img.renderActive: true
+                }
             },
             State {
                 name: "background"
-                PropertyChanges { target: img; opacity: 1; z: 0; renderActive: true }
+                PropertyChanges {
+                    img.opacity: 1
+                    img.z: 0
+                    img.renderActive: true
+                }
             },
             State {
                 name: "inactive"
-                PropertyChanges { target: img; opacity: 0; z: 0; renderActive: false }
+                PropertyChanges {
+                    img.opacity: 0
+                    img.z: 0
+                    img.renderActive: false
+                }
             }
         ]
 
         transitions: [
             Transition {
-                from: "inactive"; to: "active"
+                from: "inactive"
+                to: "active"
                 enabled: root.completed
-                NumberAnimation { property: "opacity"; duration: img.fadeMs; easing.type: Easing.InOutQuad }
+                NumberAnimation {
+                    property: "opacity"
+                    duration: img.fadeMs
+                    easing.type: Easing.InOutQuad
+                }
             }
         ]
 
@@ -161,18 +194,27 @@ Item {
             if (state === "active") {
                 cleanupTimer.stop();
                 if (animsEnabled && root.completed) {
-                    maskRadius = 0;
-                    maskAnim.restart();
+                    if (isVideo) {
+                        pendingVideoAnim = true;
+                        maskRadius = 0;
+                    } else {
+                        pendingVideoAnim = false;
+                        maskRadius = 0;
+                        maskAnim.restart();
+                    }
                 } else {
+                    pendingVideoAnim = false;
                     maskRadius = maxRadius;
                 }
             } else if (state === "background") {
-                cleanupTimer.restart(); 
+                pendingVideoAnim = false;
+                cleanupTimer.restart();
                 if (animsEnabled) {
                     maskRadius = maxRadius;
                     currentShape = root.shapes[Math.floor(Math.random() * root.shapes.length)];
                 }
             } else {
+                pendingVideoAnim = false;
                 cleanupTimer.stop();
             }
         }
@@ -181,12 +223,12 @@ Item {
             id: maskLoader
             anchors.fill: parent
             active: img.animsEnabled
-            
+
             sourceComponent: Item {
                 id: maskContainer
                 anchors.fill: parent
-                
-                readonly property Item maskSource: maskSourceItem 
+
+                readonly property Item maskSource: maskSourceItem
 
                 Item {
                     id: maskWrapper
@@ -208,7 +250,7 @@ Item {
                     anchors.fill: parent
                     hideSource: true
                     live: img.needsMask
-                    visible: img.needsMask
+                    visible: false
                 }
             }
         }
@@ -223,7 +265,8 @@ Item {
             }
         }
         
-        readonly property bool needsMask: animsEnabled && img.z === 1 && img.maskRadius < (img.maxRadius - 1.5)
+        readonly property bool hasReadyContent: isVideo ? isPlayerPlaying : (thumbImg.status === Image.Ready)
+        readonly property bool needsMask: animsEnabled && img.z === 1 && hasReadyContent && img.maskRadius < (img.maxRadius - 1.5) && !!maskLoader.item
 
         Component.onCompleted: maskRadius = maxRadius
 
@@ -234,37 +277,60 @@ Item {
             layer.enabled: img.needsMask || (root.shouldRecolor && img.renderActive)
             layer.effect: MultiEffect {
                 maskEnabled: img.needsMask
-                
+
                 maskSource: maskLoader.item ? maskLoader.item.maskSource : null
 
                 shadowEnabled: img.needsMask && !img.isVideo
-                shadowColor: "black"; shadowBlur: 1.0; shadowVerticalOffset: 15; shadowHorizontalOffset: 5
+                shadowColor: "black"
+                shadowBlur: 1.0
+                shadowVerticalOffset: 15
+                shadowHorizontalOffset: 5
 
                 saturation: (root.shouldRecolor && root.isDynamicMonochrome) ? -1 : 0
-                colorization: (root.shouldRecolor && !root.isDynamicMonochrome) ? (Config.background ? Config.background.wallpaperRecolorStrength : 0) : 0
+                colorization: (root.shouldRecolor && !root.isDynamicMonochrome) ? (Config.background ? Config.background["wallpaperRecolorStrength"] : 0) : 0
                 colorizationColor: (Colours.palette && Colours.palette.m3primary) || "transparent"
-                
+
                 contrast: (root.shouldRecolor && root.currentFlavourName === "hard") ? 0.45 : 0.0
 
-                Behavior on saturation { enabled: img.animsEnabled && img.state === "active"; Anim { type: Anim.DefaultEffects } }
-                Behavior on colorization { enabled: img.animsEnabled && img.state === "active"; Anim { type: Anim.DefaultEffects } }
-                Behavior on contrast { enabled: img.animsEnabled && img.state === "active"; Anim { type: Anim.DefaultEffects } }
-                Behavior on colorizationColor { enabled: img.animsEnabled && img.state === "active"; CAnim {} }
+                Behavior on saturation {
+                    enabled: img.animsEnabled && img.state === "active"
+                    Anim {
+                        type: Anim.DefaultEffects
+                    }
+                }
+                Behavior on colorization {
+                    enabled: img.animsEnabled && img.state === "active"
+                    Anim {
+                        type: Anim.DefaultEffects
+                    }
+                }
+                Behavior on contrast {
+                    enabled: img.animsEnabled && img.state === "active"
+                    Anim {
+                        type: Anim.DefaultEffects
+                    }
+                }
+                Behavior on colorizationColor {
+                    enabled: img.animsEnabled && img.state === "active"
+                    CAnim {}
+                }
             }
 
             CachingImage {
+                id: thumbImg
                 anchors.fill: parent
                 path: img.verifiedPath
                 source: {
-                    if (!img.verifiedPath) return "";
+                    if (!img.verifiedPath)
+                        return "";
                     if (img.isVideo) {
                         const thumb = Wallpapers.getWallpaperThumb(img.verifiedPath, Wallpapers.cacheBuster);
                         return typeof thumb === "string" ? thumb : "";
                     }
                     return img.verifiedPath;
                 }
-                
-                visible: !img.isVideo || !img.isPlayerPlaying
+
+                visible: !img.isVideo || (!img.isPlayerPlaying && videoChannelLoader.status !== Loader.Ready)
                 asynchronous: true
 
                 onStatusChanged: {
@@ -277,22 +343,35 @@ Item {
                 id: videoChannelLoader
                 anchors.fill: parent
                 asynchronous: true
-                
+
                 active: img.isVideo && img.verifiedPath !== "" && img.renderActive
                 source: "VideoWallpaper.qml"
 
+                Timer {
+                    id: resumeTimer
+                    interval: 150
+                    repeat: false
+                    onTriggered: {
+                        if (videoChannelLoader.item && img.isVideo && !WallpaperPauser.paused && img.state === "active") {
+                            videoChannelLoader.item["stop"]();
+                            videoChannelLoader.item["play"]();
+                        }
+                    }
+                }
+
                 Connections {
                     target: WallpaperPauser
-                    ignoreUnknownSignals: true  
+                    ignoreUnknownSignals: true
                     enabled: img.isVideo && videoChannelLoader.active
-                       
+
                     function onPausedChanged() {
                         if (videoChannelLoader.item && img.isVideo) {
                             if (WallpaperPauser.paused) {
-                                videoChannelLoader.item.pause();
+                                resumeTimer.stop();
+                                videoChannelLoader.item["pause"]();
                             } else {
                                 if (img.state === "active") {
-                                    videoChannelLoader.item.play();
+                                    resumeTimer.restart();
                                 }
                             }
                         }

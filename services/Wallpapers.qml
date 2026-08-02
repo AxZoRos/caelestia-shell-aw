@@ -30,12 +30,16 @@ Searcher {
     property string rollbackPath: ""
     property string rollbackMode: ""
     property bool isTrackingRollback: false
+    
     // Track and restore the last used wallpaper per mode using low-overhead execution
     property string lastStatic: ""
     property string lastAnimated: ""
+
+    property var _hashCache: ({})
+
     Timer {
         id: colorReleaseTimer
-        interval: 200 // Safe buffer for Python to write system color templates
+        interval: 180 
         repeat: false
         onTriggered: {
             // Safety check: only clear the preview if no new lock has been engaged
@@ -44,8 +48,61 @@ Searcher {
                 pendingPreviewClear = false;
             }
         }
-     }
-    
+    }
+
+    function djb2_hash(s) {
+        if (!s) return "0";
+        if (_hashCache[s] !== undefined) return _hashCache[s];
+
+        let h = 5381;
+        for (let i = 0; i < s.length; i++) {
+            h = ((h << 5) + h) + s.charCodeAt(i);
+            h |= 0;
+        }
+        const res = (h >>> 0).toString(10);
+        _hashCache[s] = res;
+        return res;
+    }
+
+    function getWallpaperThumb(path, buster) {
+        let clean = String(path || "").split(/[?#]/)[0];
+        if (clean.indexOf("file://") === 0) clean = clean.substring(7);
+        let b = buster !== undefined ? buster : cacheBuster;
+        return "file://" + Paths.cache + "/videothumbs/" + djb2_hash(clean) + ".jpg" + (b ? "?v=" + b : "");
+    }
+
+    function isVideo(path: string): bool {
+        if (!path) return false;
+        const clean = String(path).split(/[?#]/)[0].toLowerCase();
+        const index = clean.lastIndexOf(".");
+        const ext = index >= 0 ? clean.slice(index + 1) : "";
+        return validVideoExtensions.includes(ext);
+    }
+
+    function indexOf(path: string): int {
+        if (!path) return -1;
+        let clean = String(path).split(/[?#]/)[0];
+        if (clean.indexOf("file://") === 0) clean = clean.substring(7);
+
+        for (let i = 0; i < list.length; i++) {
+            let p = String(list[i].path || "").split(/[?#]/)[0];
+            if (p.indexOf("file://") === 0) p = p.substring(7);
+            if (p === clean) return i;
+        }
+        return -1;
+    }
+
+    function getCategoryFor(w: FileSystemEntry): string {
+        let category = w.parentDir.slice(Paths.wallsdir.length + 1);
+        if (category.includes("/"))
+            category = category.slice(0, category.indexOf("/"));
+        return category;
+    }
+
+    function setWallpaperMode(mode) {
+        wallpaperMode = mode;
+    }
+
     function captureRollbackState() {
         if (!isTrackingRollback) {
             rollbackPath = actualCurrent;
@@ -53,17 +110,122 @@ Searcher {
             isTrackingRollback = true;
         }
     }
-    
+
     onWallpaperModeChanged: {
         captureRollbackState();
         
-        if (wallpaperMode === "animated" && lastAnimated !== "" && !isVideo(actualCurrent)) {
-            actualCurrent = lastAnimated;
-            Quickshell.execDetached(["caelestia", "wallpaper", "-f", lastAnimated, "--no-smart"]);
-        } else if (wallpaperMode === "static" && lastStatic !== "" && isVideo(actualCurrent)) {
-            actualCurrent = lastStatic;
-            Quickshell.execDetached(["caelestia", "wallpaper", "-f", lastStatic, "--no-smart"]);
+        const target = wallpaperMode === "animated" ? lastAnimated : lastStatic;
+
+        if (target !== "") {
+            actualCurrent = target;
+            if (showPreview) {
+                previewPath = target;
+                if (String(Colours.scheme).startsWith("dynamic")) {
+                    if (!getPreviewColoursProc.running) {
+                        getPreviewColoursProc.startFor(target);
+                    }
+                }
+            } else {
+                Quickshell.execDetached(["caelestia", "wallpaper", "-f", target, ...smartArg]);
+            }
         }
+    }
+
+    onEnableAnimationChanged: {
+        Quickshell.execDetached(["sh", "-c", "mkdir -p '" + Paths.state + "/wallpaper' && echo '" + (enableAnimation ? "1" : "0") + "' > '" + Paths.state + "/wallpaper/enable_animation.txt'"]);
+    }
+
+    function setRandom(): void {
+        Quickshell.execDetached(["caelestia", "wallpaper", "-r", ...smartArg]);
+    }
+
+    function setWallpaper(path: string): void {
+        let clean = String(path || "").split(/[?#]/)[0];
+        if (clean.indexOf("file://") === 0) clean = clean.substring(7);
+        if (!clean) return;
+
+        actualCurrent = clean;
+        isTrackingRollback = false;
+
+        // Hold the preview palette locked while the backend executes
+        previewColourLock = true;
+        pendingPreviewClear = false;
+        
+        if (isVideo(clean)) {
+            lastAnimated = clean;
+            wallpaperMode = "animated";
+            // Save animated path to disk
+            Quickshell.execDetached(["sh", "-c", "mkdir -p '" + Paths.state + "/wallpaper' && echo '" + clean + "' > '" + Paths.state + "/wallpaper/last_animated.txt'"]);
+        } else {
+            lastStatic = clean;
+            wallpaperMode = "static";
+            // Save static path to disk
+            Quickshell.execDetached(["sh", "-c", "mkdir -p '" + Paths.state + "/wallpaper' && echo '" + clean + "' > '" + Paths.state + "/wallpaper/last_static.txt'"]);
+        }
+
+        stopPreview();
+        
+        Quickshell.execDetached(["caelestia", "wallpaper", "-f", clean, ...smartArg]);
+    }
+
+    function preview(path: string): void {
+        captureRollbackState();
+        
+        let clean = String(path || "").split(/[?#]/)[0];
+        if (clean.indexOf("file://") === 0) clean = clean.substring(7);
+        if (!clean) return;
+
+        if (previewPath === clean && showPreview) return;
+
+        previewPath = clean;
+        showPreview = true;
+
+        if (String(Colours.scheme).startsWith("dynamic")) {
+            if (!getPreviewColoursProc.running) {
+                getPreviewColoursProc.startFor(clean);
+            }
+        }
+    }
+
+    function stopPreview(): void {
+        showPreview = false;
+        
+        if (getPreviewColoursProc.running) {
+            getPreviewColoursProc.running = false;
+        }
+
+        if (isTrackingRollback) {
+            wallpaperMode = rollbackMode;
+            actualCurrent = rollbackPath;
+            isTrackingRollback = false;
+            
+            Quickshell.execDetached(["caelestia", "wallpaper", "-f", rollbackPath, ...smartArg]);
+        }
+
+        if (previewColourLock) {
+            pendingPreviewClear = true;
+        } else {
+            Colours.showPreview = false;
+            pendingPreviewClear = false;
+        }
+    }
+
+    onPreviewColourLockChanged: {
+        if (!previewColourLock && pendingPreviewClear) {
+            colorReleaseTimer.restart();
+        }
+    }
+
+    list: wallpaperMode === "animated" ? animatedWallpapers.entries : staticWallpapers.entries
+    key: "relativePath"
+    useFuzzy: GlobalConfig.launcher.useFuzzy.wallpapers
+    extraOpts: useFuzzy ? ({}) : ({ forward: false })
+
+    IpcHandler {
+        function get(): string { return root.actualCurrent; }
+        function set(path: string): void { root.setWallpaper(path); }
+        function list(): string { return root.list.map(w => w.path).join("\n"); }
+        target: "wallpaper"
     }
 
     FileView {
@@ -74,132 +236,6 @@ Searcher {
             if (val === "0") root.enableAnimation = false;
             else if (val === "1") root.enableAnimation = true;
         }
-    }
-
-    onEnableAnimationChanged: {
-        Quickshell.execDetached(["sh", "-c", "mkdir -p '" + Paths.state + "/wallpaper' && echo '" + (enableAnimation ? "1" : "0") + "' > '" + Paths.state + "/wallpaper/enable_animation.txt'"]);
-    }
-
-    function djb2_hash(s) {
-        let h = 5381;
-        for (let i = 0; i < s.length; i++) {
-            h = (h * 33 + s.charCodeAt(i)) >>> 0;
-        }
-        return h.toString(10);
-    }
-
-    function getWallpaperThumb(path, buster) {
-        let clean = String(path || "").split(/[?#]/)[0];
-        if (clean.indexOf("file://") === 0) clean = clean.substring(7);
-        let b = buster !== undefined ? buster : cacheBuster;
-        return "file://" + Paths.cache + "/videothumbs/" + djb2_hash(clean) + ".jpg" + (b ? "?v=" + b : "");
-    }
-
-    function setWallpaperMode(mode) {
-        wallpaperMode = mode;
-    }
-
-    function isVideo(path: string): bool {
-        const clean = String(path || "").split(/[?#]/)[0].toLowerCase();
-        const index = clean.lastIndexOf(".");
-        const ext = index >= 0 ? clean.slice(index + 1) : "";
-        return ["mp4", "webm", "mkv"].includes(ext);
-    }
-
-    function getCategoryFor(w: FileSystemEntry): string {
-        let category = w.parentDir.slice(Paths.wallsdir.length + 1);
-        if (category.includes("/"))
-            category = category.slice(0, category.indexOf("/"));
-        return category;
-    }
-
-    function setRandom(): void {
-        Quickshell.execDetached(["caelestia", "wallpaper", "-r", ...smartArg]);
-    }
-
-    function setWallpaper(path: string): void {
-        let clean = String(path || "").split(/[?#]/)[0];
-        if (clean.indexOf("file://") === 0) clean = clean.substring(7);
-        actualCurrent = clean;
-        isTrackingRollback = false;
-
-        // Hold the preview palette locked while the backend executes
-        previewColourLock = true;
-        pendingPreviewClear = false;
-        
-        if (isVideo(clean)) {
-            lastAnimated = clean;
-            // Save animated path to disk
-            Quickshell.execDetached(["sh", "-c", "echo '" + clean + "' > '" + Paths.state + "/wallpaper/last_animated.txt'"]);
-            stopPreview();
-        } else {
-           lastStatic = clean;
-           // Save static path to disk
-           Quickshell.execDetached(["sh", "-c", "echo '" + clean + "' > '" + Paths.state + "/wallpaper/last_static.txt'"]);
-        }
-        
-        Quickshell.execDetached(["caelestia", "wallpaper", "-f", clean, ...smartArg]);
-    }
-
-    function preview(path: string): void {
-        captureRollbackState();
-        
-        let clean = String(path || "").split(/[?#]/)[0];
-        if (clean.indexOf("file://") === 0) clean = clean.substring(7);
-        previewPath = clean;
-        showPreview = true;
-
-        if (String(Colours.scheme).startsWith("dynamic")) {
-            if (getPreviewColoursProc.running) {
-                getPreviewColoursProc.running = false;
-            }
-            getPreviewColoursProc.running = true;
-        }
-    }
-
-    function stopPreview(): void {
-        showPreview = false;
-        if (isTrackingRollback) {
-            wallpaperMode = rollbackMode;
-            actualCurrent = rollbackPath;
-            isTrackingRollback = false;
-            
-            Quickshell.execDetached(["caelestia", "wallpaper", "-f", rollbackPath, ...smartArg]);
-        }
-        
-        if (previewColourLock)
-            pendingPreviewClear = true;
-        else
-            Colours.showPreview = false;
-    }
-
-    onPreviewColourLockChanged: {
-        if (!previewColourLock && pendingPreviewClear){
-        	 colorReleaseTimer.restart();
-        }  
-    }
-
-    list: wallpaperMode === "animated" ? animatedWallpapers.entries : staticWallpapers.entries
-    key: "relativePath"
-    useFuzzy: GlobalConfig.launcher.useFuzzy.wallpapers
-    extraOpts: useFuzzy ? ({}) : ({
-            forward: false
-        })
-
-    IpcHandler {
-        function get(): string {
-            return root.actualCurrent;
-        }
-
-        function set(path: string): void {
-            root.setWallpaper(path);
-        }
-
-        function list(): string {
-            return root.list.map(w => w.path).join("\n");
-        }
-
-        target: "wallpaper"
     }
 
     FileView {
@@ -219,8 +255,10 @@ Searcher {
             // Set initial wallpaper mode based on current file type on boot
             if (root.isVideo(root.actualCurrent)) {
                 wallpaperMode = "animated";
+                if (!root.lastAnimated) root.lastAnimated = wall;
             } else {
                 wallpaperMode = "static";
+                if (!root.lastStatic) root.lastStatic = wall;
             }
         }
         onLoadFailed: {
@@ -234,19 +272,24 @@ Searcher {
     FileView {
         path: `${Paths.state}/wallpaper/last_static.txt`
         printErrors: false
-        onLoaded: root.lastStatic = text().trim()
+        onLoaded: {
+            const val = text().trim();
+            if (val) root.lastStatic = val;
+        }
     }
     
     // Read persisted animated wallpaper state on startup
     FileView {
         path: `${Paths.state}/wallpaper/last_animated.txt`
         printErrors: false
-        onLoaded: root.lastAnimated = text().trim()
+        onLoaded: {
+            const val = text().trim();
+            if (val) root.lastAnimated = val;
+        }
     }
 
     FileSystemModel {
         id: staticWallpapers
-
         watchChanges: true
         recursive: true
         path: Paths.wallsdir
@@ -256,7 +299,6 @@ Searcher {
 
     FileSystemModel {
         id: animatedWallpapers
-
         watchChanges: true
         recursive: true
         path: Paths.wallsdir + "/Animated"
@@ -267,11 +309,34 @@ Searcher {
     Process {
         id: getPreviewColoursProc
 
-        command: ["caelestia", "wallpaper", "-p", root.previewPath, ...root.smartArg]
+        property string currentProcessingPath: ""
+
+        command: ["caelestia", "wallpaper", "-p", currentProcessingPath, ...root.smartArg]
+
+        function startFor(path) {
+            if (!path) return;
+            currentProcessingPath = path;
+            running = true;
+        }
+
         stdout: StdioCollector {
             onStreamFinished: {
-                Colours.load(text, true);
-                Colours.showPreview = true;
+                if (!root.showPreview) return;
+
+                const raw = text ? text.trim() : "";
+                if (raw) {
+                    try {
+                        JSON.parse(raw);
+                        Colours.load(raw, true);
+                        Colours.showPreview = true;
+                    } catch (e) {
+                        // Ignore incomplete or invalid output during cancellation
+                    }
+                }
+
+                if (root.showPreview && root.previewPath !== "" && root.previewPath !== getPreviewColoursProc.currentProcessingPath) {
+                    getPreviewColoursProc.startFor(root.previewPath);
+                }
             }
         }
     }
@@ -283,28 +348,30 @@ Searcher {
     FileView {
         path: "/tmp/caelestia_thumb_ready.txt"
         watchChanges: true
-        onFileChanged: reload()
+        printErrors: false
         onLoaded: {
-            const lines = text().trim().split("\n");
-            let newBusters = Object.assign({}, root.itemBusters);
+            const raw = text().trim();
+            if (!raw) return;
+            
+            const lines = raw.split("\n");
+            let busters = Object.assign({}, root.itemBusters);
             let changed = false;
             const now = Date.now().toString();
+
             for (let i = 0; i < lines.length; i++) {
                 let line = lines[i].trim();
                 if (line.indexOf("file://") === 0) line = line.substring(7);
-                if (line && !newBusters[line]) {
-                    newBusters[line] = now;
-                    newBusters["file://" + line] = now;
+                if (line && !busters[line]) {
+                    busters[line] = now;
+                    busters["file://" + line] = now;
                     changed = true;
                 }
             }
             if (changed) {
-                root.itemBusters = newBusters;
+                root.itemBusters = busters;
             }
         }
     }
-
-    // Removed invalid updateWallpapers function
 
     function refreshAnimatedThumbs() {
         if (_refreshing) return;
