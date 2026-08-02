@@ -23,59 +23,83 @@ Singleton {
         property alias pauseOnWindowOverlap: root.pauseOnWindowOverlap
         property alias hwDecoder: root.hwDecoder
     }
+
     property bool paused: false
     property bool _loaded: false
     property string pauseReason: "None"
+
+    readonly property real largeWindowAreaRatio: 0.7
 
     Process {
         id: saveHwDecoderProcess
     }
 
-    function recalculate() {
-        let newPaused = false;
-        let reason = "None";
+    // Escapes single quotes for shell command execution
+    function shellQuote(value) {
+        return "'" + String(value).replace(/'/g, "'\\''") + "'";
+    }
 
-        // Rule #1 — Battery
+    // Rule #1 — Battery status check
+    function checkBatteryReason() {
         if (pauseOnBattery && UPower.onBattery) {
-            newPaused = true;
-            reason = "Battery";
-        } else if (pauseOnWindowOverlap) {
-            const monitor = Hyprland.focusedMonitor;
-            const ws = monitor && monitor.activeWorkspace ? monitor.activeWorkspace : Hyprland.focusedWorkspace;
+            return "Battery";
+        }
+        return "";
+    }
 
-            if (ws) {
-                // Strictly filter global toplevels to ONLY the focused workspace
-                const toplevels = ws.toplevels.values;
+    // Rules #2 & #3 — Window overlap and screen coverage checks
+    function checkWindowOverlapReason() {
+        if (!pauseOnWindowOverlap)
+            return "";
 
-                // Rule #3 — 2+ visible windows
-                if (toplevels.length >= 2) {
-                    newPaused = true;
-                    reason = "2+ windows (" + toplevels.length + " total)";
-                } else {
-                    // Rule #2 — 70% of monitor area
-                    if (monitor) {
-                        const screen = Quickshell.screens.find(s => s.name === monitor.name);
-                        if (screen) {
-                            const screenArea = screen.width * screen.height;
-                            if (screenArea > 0) {
-                                const threshold = screenArea * 0.7;
-                                for (const t of toplevels) {
-                                    const size = t.lastIpcObject?.size;
-                                    if (size && size.length >= 2 && size[0] * size[1] >= threshold) {
-                                        newPaused = true;
-                                        reason = "70% area rule by: " + (t.lastIpcObject?.title ?? "Unknown") + " (" + size[0] + "x" + size[1] + ")";
-                                        break;
-                                    }
-                                }
-                            }
-                        }
+        const monitor = Hyprland.focusedMonitor;
+        const ws = monitor?.activeWorkspace ?? Hyprland.focusedWorkspace;
+        if (!ws)
+            return "";
+
+        const toplevels = ws.toplevels.values;
+
+        // Rule #2 — 2+ visible windows threshold
+        if (toplevels.length >= 2) {
+            return `2+ windows (${toplevels.length} total)`;
+        }
+
+        // Rule #3 — Large single window coverage rule
+        if (monitor) {
+            const screen = Quickshell.screens.find(s => s.name === monitor.name);
+            const screenArea = screen ? (screen.width * screen.height) : 0;
+            if (screenArea > 0) {
+                const threshold = screenArea * largeWindowAreaRatio;
+                const percent = Math.round(largeWindowAreaRatio * 100);
+                for (const t of toplevels) {
+                    const size = t.lastIpcObject?.size;
+                    if (size && size.length >= 2 && (size[0] * size[1]) >= threshold) {
+                        const title = t.lastIpcObject?.title ?? "Unknown";
+                        return `${percent}%+ area rule by: ${title} (${size[0]}x${size[1]})`;
                     }
                 }
             }
         }
 
-        paused = newPaused;
-        root.pauseReason = reason;
+        return "";
+    }
+
+    function recalculate() {
+        let reason = checkBatteryReason();
+
+        if (!reason) {
+            reason = checkWindowOverlapReason();
+        }
+
+        paused = !!reason;
+        pauseReason = reason || "None";
+    }
+
+    readonly property var relevantEventPrefixes: ["workspace", "activewindow", "createworkspace", "destroyworkspace"]
+    readonly property var relevantEventNames: ["fullscreen", "changefloatingmode", "minimize", "movewindow", "openwindow", "closewindow", "moveworkspace", "focusedmon"]
+
+    function isRelevantHyprlandEvent(name) {
+        return relevantEventPrefixes.some(prefix => name.startsWith(prefix)) || relevantEventNames.includes(name);
     }
 
     Connections {
@@ -87,8 +111,7 @@ Singleton {
             root.recalculate();
         }
         function onRawEvent(event) {
-            const n = event.name;
-            if (n.startsWith("workspace") || n.startsWith("activewindow") || n.startsWith("createworkspace") || n.startsWith("destroyworkspace") || ["fullscreen", "changefloatingmode", "minimize", "movewindow", "openwindow", "closewindow", "moveworkspace", "focusedmon"].includes(n)) {
+            if (root.isRelevantHyprlandEvent(event.name)) {
                 recalcTimer.restart();
             }
         }
@@ -107,7 +130,7 @@ Singleton {
         onTriggered: root.recalculate()
     }
 
-    // Startup timer to ensure we catch the asynchronously loaded Hyprland and Quickshell state
+    // Startup timer to ensure we catch asynchronously loaded Hyprland state
     Timer {
         id: startupTimer
         interval: 1000
@@ -117,28 +140,24 @@ Singleton {
         onTriggered: {
             root.recalculate();
             attempts++;
-            if (attempts >= 5) {
+            if (attempts >= 5)
                 running = false;
-            }
         }
     }
 
-    onPauseOnBatteryChanged: {
-        recalculate();
+    onPauseOnBatteryChanged: recalculate()
+    onPauseOnWindowOverlapChanged: recalculate()
+
+    // Sync hwDecoder to disk for external CLI environment injection before Qt startup
+    function _syncHwDecoder() {
+        if (!root._loaded)
+            return;
+        const cmd = `echo ${shellQuote(root.hwDecoder)} > ~/.cache/caelestia/hwDecoder.txt && nohup sh -c 'sleep 0.5 && caelestia shell -d' >/dev/null 2>&1 & caelestia shell -k`;
+        saveHwDecoderProcess.command = ["sh", "-c", cmd];
+        saveHwDecoderProcess.running = true;
     }
 
-    onPauseOnWindowOverlapChanged: {
-        recalculate();
-    }
-
-    onHwDecoderChanged: {
-        // We still need to sync this to a text file because the python CLI needs to read it
-        // BEFORE the Qt application starts in order to inject the environment variables.
-        if (root._loaded) {
-            saveHwDecoderProcess.command = ["sh", "-c", "echo '" + root.hwDecoder + "' > ~/.cache/caelestia/hwDecoder.txt && nohup sh -c 'sleep 0.5 && caelestia shell -d' >/dev/null 2>&1 & caelestia shell -k"];
-            saveHwDecoderProcess.running = true;
-        }
-    }
+    onHwDecoderChanged: _syncHwDecoder()
 
     Component.onCompleted: {
         root._loaded = true;
