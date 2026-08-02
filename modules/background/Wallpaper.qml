@@ -13,8 +13,10 @@ Item {
 
     property string source: Wallpapers.current
     property Item current: null
-    property bool completed
+    property bool completed: false
     property string settledSource: ""
+
+    readonly property int sourceChangeDebounceMs: 80
 
     readonly property string currentSchemeName: (Colours.showPreview ? Colours["previewScheme"] : Colours.scheme) || ""
     readonly property string currentVariantName: (Colours.showPreview ? Colours["previewVariant"] : Colours.variant) || ""
@@ -22,6 +24,7 @@ Item {
     readonly property bool isDynamicScheme: root.currentSchemeName.startsWith("dynamic")
     readonly property bool isDynamicMonochrome: root.isDynamicScheme && root.currentVariantName === "monochrome"
     readonly property bool shouldRecolor: !!(Config.background && Config.background["wallpaperRecolor"]) && (!root.isDynamicScheme || root.isDynamicMonochrome)
+    readonly property real hardFlavourContrastBoost: 0.45
 
     readonly property var shapes: [MaterialShape.Circle, MaterialShape.Square, MaterialShape.Diamond, MaterialShape.ClamShell, MaterialShape.Pentagon, MaterialShape.Gem, MaterialShape.Clover4Leaf, MaterialShape.SoftBurst, MaterialShape.Cookie6Sided]
 
@@ -29,77 +32,62 @@ Item {
         if (!path)
             return "";
         const clean = String(path).trim();
-        if (clean.indexOf("file://") === 0)
+        if (clean.startsWith("file://"))
             return clean;
-        if (clean[0] === "/")
+        if (clean.startsWith("/"))
             return "file://" + clean;
         return Qt.resolvedUrl(clean);
     }
 
+    function activateLayer(layer, path) {
+        layer.path = path;
+        layer.state = "active";
+        root.current = layer;
+    }
+
+    // Coalesce rapid source changes during fast list scrolling
     Timer {
         id: coalesceTimer
-        interval: 80
+        interval: root.sourceChangeDebounceMs
         repeat: false
         onTriggered: root.applySourceChange()
     }
 
-    onSourceChanged: {
-        coalesceTimer.restart();
-    }
+    onSourceChanged: coalesceTimer.restart()
 
     function applySourceChange() {
-        if (source === settledSource && root.current && root.current.state === "active") {
+        if (source === settledSource && root.current?.state === "active")
             return;
-        }
 
         settledSource = source;
 
         if (!settledSource) {
             one.state = "inactive";
             two.state = "inactive";
-            current = null;
+            root.current = null;
             return;
         }
 
-        let nextLayer = null;
-        let prevLayer = null;
+        const prevLayer = root.current;
+        const nextLayer = prevLayer === one ? two : one;
 
-        if (one.state === "active") {
-            prevLayer = one;
-            nextLayer = two;
-        } else if (two.state === "active") {
-            prevLayer = two;
-            nextLayer = one;
-        } else {
-            prevLayer = null;
-            nextLayer = one;
-        }
-
-        if (nextLayer.state === "background") {
+        if (nextLayer.state === "background")
             nextLayer.state = "inactive";
-        }
-
-        if (prevLayer) {
+        if (prevLayer)
             prevLayer.state = "background";
-        }
 
-        nextLayer.path = settledSource;
-        nextLayer.state = "active";
-        root.current = nextLayer;
+        activateLayer(nextLayer, settledSource);
     }
 
     Component.onCompleted: {
         if (source) {
             settledSource = source;
-            one.path = settledSource;
-            one.state = "active";
-            root.current = one;
-            completed = true;
-        } else {
-            completed = true;
+            activateLayer(one, settledSource);
         }
+        completed = true;
     }
 
+    // Background placeholder for missing or empty wallpaper source
     Loader {
         asynchronous: true
         anchors.fill: parent
@@ -109,6 +97,24 @@ Item {
         }
     }
 
+    // Persistent fallback thumbnail preventing black screen glitches during async loads
+    CachingImage {
+        id: rootFallbackThumb
+        anchors.fill: parent
+        path: root.settledSource
+        source: {
+            if (!root.settledSource)
+                return "";
+            if (Wallpapers.isVideo(root.settledSource)) {
+                const thumb = Wallpapers.getWallpaperThumb(root.settledSource, Wallpapers.cacheBuster);
+                return typeof thumb === "string" ? thumb : "";
+            }
+            return root.settledSource;
+        }
+        asynchronous: true
+        visible: path !== ""
+    }
+
     Img {
         id: one
     }
@@ -116,6 +122,7 @@ Item {
         id: two
     }
 
+    // Layer component handling state transitions, recoloring effects, and Material reveal masks
     component Img: Item {
         id: img
 
@@ -124,19 +131,31 @@ Item {
 
         readonly property bool isVideo: Wallpapers.isVideo(path)
         readonly property bool animsEnabled: !!Wallpapers.enableAnimation
-        readonly property string verifiedPath: path || ""
         readonly property int fadeMs: 400
+        readonly property int maskDurationMs: 2500
+        readonly property int maskCleanupBufferMs: 100
+        readonly property real maskCompletionEpsilon: 1.5
+        readonly property int resumeDelayMs: 150
 
         property bool renderActive: false
         property bool pendingVideoAnim: false
 
-        readonly property bool isPlayerPlaying: !!(videoChannelLoader.item && videoChannelLoader.item["playing"])
+        readonly property bool isPlayerPlaying: !!(videoChannelLoader.item?.playing)
+        readonly property bool videoFailed: isVideo && !!(videoChannelLoader.item?.hasError)
 
         anchors.fill: parent
         opacity: 0
 
         onIsPlayerPlayingChanged: {
-            if (isPlayerPlaying && pendingVideoAnim && isVideo && animsEnabled && state === "active") {
+            if (isPlayerPlaying && pendingVideoAnim && animsEnabled && state === "active") {
+                pendingVideoAnim = false;
+                maskRadius = 0;
+                maskAnim.restart();
+            }
+        }
+
+        onVideoFailedChanged: {
+            if (videoFailed && pendingVideoAnim && animsEnabled && state === "active") {
                 pendingVideoAnim = false;
                 maskRadius = 0;
                 maskAnim.restart();
@@ -145,7 +164,7 @@ Item {
 
         Timer {
             id: cleanupTimer
-            interval: (img.animsEnabled && root.completed) ? 2600 : (img.fadeMs + 20)
+            interval: (img.animsEnabled && root.completed) ? (img.maskDurationMs + img.maskCleanupBufferMs) : (img.fadeMs + 20)
             repeat: false
             onTriggered: img.state = "inactive"
         }
@@ -195,8 +214,14 @@ Item {
                 cleanupTimer.stop();
                 if (animsEnabled && root.completed) {
                     if (isVideo) {
-                        pendingVideoAnim = true;
-                        maskRadius = 0;
+                        if (WallpaperPauser.paused) {
+                            pendingVideoAnim = false;
+                            maskRadius = 0;
+                            maskAnim.restart();
+                        } else {
+                            pendingVideoAnim = true;
+                            maskRadius = 0;
+                        }
                     } else {
                         pendingVideoAnim = false;
                         maskRadius = 0;
@@ -225,9 +250,7 @@ Item {
             active: img.animsEnabled
 
             sourceComponent: Item {
-                id: maskContainer
                 anchors.fill: parent
-
                 readonly property Item maskSource: maskSourceItem
 
                 Item {
@@ -264,9 +287,8 @@ Item {
                 maskRadius = maxRadius;
             }
         }
-        
-        readonly property bool hasReadyContent: isVideo ? isPlayerPlaying : (thumbImg.status === Image.Ready)
-        readonly property bool needsMask: animsEnabled && img.z === 1 && hasReadyContent && img.maskRadius < (img.maxRadius - 1.5) && !!maskLoader.item
+
+        readonly property bool needsMask: animsEnabled && img.state === "active" && img.maskRadius < (img.maxRadius - img.maskCompletionEpsilon) && !!maskLoader.item
 
         Component.onCompleted: maskRadius = maxRadius
 
@@ -274,11 +296,11 @@ Item {
             id: contentItem
             anchors.fill: parent
 
+            // Offscreen Framebuffer Object (FBO) pass is strictly bound to active mask animations or recolor filters
             layer.enabled: img.needsMask || (root.shouldRecolor && img.renderActive)
             layer.effect: MultiEffect {
                 maskEnabled: img.needsMask
-
-                maskSource: maskLoader.item ? maskLoader.item.maskSource : null
+                maskSource: maskLoader.item?.maskSource ?? null
 
                 shadowEnabled: img.needsMask && !img.isVideo
                 shadowColor: "black"
@@ -289,8 +311,7 @@ Item {
                 saturation: (root.shouldRecolor && root.isDynamicMonochrome) ? -1 : 0
                 colorization: (root.shouldRecolor && !root.isDynamicMonochrome) ? (Config.background ? Config.background["wallpaperRecolorStrength"] : 0) : 0
                 colorizationColor: (Colours.palette && Colours.palette.m3primary) || "transparent"
-
-                contrast: (root.shouldRecolor && root.currentFlavourName === "hard") ? 0.45 : 0.0
+                contrast: (root.shouldRecolor && root.currentFlavourName === "hard") ? root.hardFlavourContrastBoost : 0.0
 
                 Behavior on saturation {
                     enabled: img.animsEnabled && img.state === "active"
@@ -319,22 +340,22 @@ Item {
             CachingImage {
                 id: thumbImg
                 anchors.fill: parent
-                path: img.verifiedPath
+                path: img.path
                 source: {
-                    if (!img.verifiedPath)
+                    if (!img.path)
                         return "";
                     if (img.isVideo) {
-                        const thumb = Wallpapers.getWallpaperThumb(img.verifiedPath, Wallpapers.cacheBuster);
+                        const thumb = Wallpapers.getWallpaperThumb(img.path, Wallpapers.cacheBuster);
                         return typeof thumb === "string" ? thumb : "";
                     }
-                    return img.verifiedPath;
+                    return img.path;
                 }
 
-                visible: !img.isVideo || (!img.isPlayerPlaying && videoChannelLoader.status !== Loader.Ready)
+                visible: !img.isVideo || ((WallpaperPauser.paused || img.videoFailed) && !img.isPlayerPlaying)
                 asynchronous: true
 
                 onStatusChanged: {
-                    if (status === Image.Ready && !img.isVideo && img.verifiedPath === root.settledSource)
+                    if (status === Image.Ready && !img.isVideo && img.path === root.settledSource)
                         root.current = img;
                 }
             }
@@ -343,18 +364,16 @@ Item {
                 id: videoChannelLoader
                 anchors.fill: parent
                 asynchronous: true
-
-                active: img.isVideo && img.verifiedPath !== "" && img.renderActive
+                active: img.isVideo && img.path !== "" && img.renderActive
                 source: "VideoWallpaper.qml"
 
                 Timer {
                     id: resumeTimer
-                    interval: 150
+                    interval: img.resumeDelayMs
                     repeat: false
                     onTriggered: {
                         if (videoChannelLoader.item && img.isVideo && !WallpaperPauser.paused && img.state === "active") {
-                            videoChannelLoader.item["stop"]();
-                            videoChannelLoader.item["play"]();
+                            videoChannelLoader.item.play();
                         }
                     }
                 }
@@ -365,22 +384,20 @@ Item {
                     enabled: img.isVideo && videoChannelLoader.active
 
                     function onPausedChanged() {
-                        if (videoChannelLoader.item && img.isVideo) {
-                            if (WallpaperPauser.paused) {
-                                resumeTimer.stop();
-                                videoChannelLoader.item["pause"]();
-                            } else {
-                                if (img.state === "active") {
-                                    resumeTimer.restart();
-                                }
-                            }
+                        if (!videoChannelLoader.item || !img.isVideo)
+                            return;
+                        if (WallpaperPauser.paused) {
+                            resumeTimer.stop();
+                            videoChannelLoader.item.pause();
+                        } else if (img.state === "active") {
+                            resumeTimer.restart();
                         }
                     }
                 }
 
                 onLoaded: {
-                    if (item && img.verifiedPath !== "") {
-                        item.videoSource = root.toFileUrl(img.verifiedPath);
+                    if (item && img.path !== "") {
+                        item.videoSource = root.toFileUrl(img.path);
                         item.autoStart = !WallpaperPauser.paused;
                     }
                 }
@@ -394,7 +411,7 @@ Item {
             from: 0
             to: img.maxRadius
             type: Anim.Emphasized
-            duration: 2500
+            duration: img.maskDurationMs
         }
     }
 }
