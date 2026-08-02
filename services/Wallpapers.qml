@@ -50,6 +50,10 @@ Searcher {
         }
     }
 
+    function shellQuote(value) {
+        return "'" + String(value).replace(/'/g, "'\\''") + "'";
+    }
+
     function djb2_hash(s) {
         if (!s) return "0";
         if (_hashCache[s] !== undefined) return _hashCache[s];
@@ -64,16 +68,20 @@ Searcher {
         return res;
     }
 
-    function getWallpaperThumb(path, buster) {
+    function getRawThumbPath(path) {
         let clean = String(path || "").split(/[?#]/)[0];
         if (clean.indexOf("file://") === 0) clean = clean.substring(7);
+        return Paths.cache + "/videothumbs/" + djb2_hash(clean) + ".jpg";
+    }
+
+    function getWallpaperThumb(path, buster) {
         let b = buster !== undefined ? buster : cacheBuster;
-        return "file://" + Paths.cache + "/videothumbs/" + djb2_hash(clean) + ".jpg" + (b ? "?v=" + b : "");
+        return "file://" + getRawThumbPath(path) + (b ? "?v=" + b : "");
     }
 
     function isVideo(path: string): bool {
         if (!path) return false;
-        const clean = String(path).split(/[?#]/)[0].toLowerCase();
+        const clean = String(path || "").split(/[?#]/)[0].toLowerCase();
         const index = clean.lastIndexOf(".");
         const ext = index >= 0 ? clean.slice(index + 1) : "";
         return validVideoExtensions.includes(ext);
@@ -100,6 +108,7 @@ Searcher {
     }
 
     function setWallpaperMode(mode) {
+        captureRollbackState();
         wallpaperMode = mode;
     }
 
@@ -112,8 +121,6 @@ Searcher {
     }
 
     onWallpaperModeChanged: {
-        captureRollbackState();
-        
         const target = wallpaperMode === "animated" ? lastAnimated : lastStatic;
 
         if (target !== "") {
@@ -121,9 +128,7 @@ Searcher {
             if (showPreview) {
                 previewPath = target;
                 if (String(Colours.scheme).startsWith("dynamic")) {
-                    if (!getPreviewColoursProc.running) {
-                        getPreviewColoursProc.startFor(target);
-                    }
+                    getPreviewColoursProc.startFor(target);
                 }
             } else {
                 Quickshell.execDetached(["caelestia", "wallpaper", "-f", target, ...smartArg]);
@@ -132,7 +137,7 @@ Searcher {
     }
 
     onEnableAnimationChanged: {
-        Quickshell.execDetached(["sh", "-c", "mkdir -p '" + Paths.state + "/wallpaper' && echo '" + (enableAnimation ? "1" : "0") + "' > '" + Paths.state + "/wallpaper/enable_animation.txt'"]);
+        Quickshell.execDetached(["sh", "-c", "mkdir -p " + shellQuote(Paths.state + "/wallpaper") + " && echo " + shellQuote(enableAnimation ? "1" : "0") + " > " + shellQuote(Paths.state + "/wallpaper/enable_animation.txt")]);
     }
 
     function setRandom(): void {
@@ -155,12 +160,12 @@ Searcher {
             lastAnimated = clean;
             wallpaperMode = "animated";
             // Save animated path to disk
-            Quickshell.execDetached(["sh", "-c", "mkdir -p '" + Paths.state + "/wallpaper' && echo '" + clean + "' > '" + Paths.state + "/wallpaper/last_animated.txt'"]);
+            Quickshell.execDetached(["sh", "-c", "mkdir -p " + shellQuote(Paths.state + "/wallpaper") + " && echo " + shellQuote(clean) + " > " + shellQuote(Paths.state + "/wallpaper/last_animated.txt")]);
         } else {
             lastStatic = clean;
             wallpaperMode = "static";
             // Save static path to disk
-            Quickshell.execDetached(["sh", "-c", "mkdir -p '" + Paths.state + "/wallpaper' && echo '" + clean + "' > '" + Paths.state + "/wallpaper/last_static.txt'"]);
+            Quickshell.execDetached(["sh", "-c", "mkdir -p " + shellQuote(Paths.state + "/wallpaper") + " && echo " + shellQuote(clean) + " > " + shellQuote(Paths.state + "/wallpaper/last_static.txt")]);
         }
 
         stopPreview();
@@ -181,9 +186,7 @@ Searcher {
         showPreview = true;
 
         if (String(Colours.scheme).startsWith("dynamic")) {
-            if (!getPreviewColoursProc.running) {
-                getPreviewColoursProc.startFor(clean);
-            }
+            getPreviewColoursProc.startFor(clean);
         }
     }
 
@@ -195,11 +198,16 @@ Searcher {
         }
 
         if (isTrackingRollback) {
-            wallpaperMode = rollbackMode;
-            actualCurrent = rollbackPath;
+            const targetPath = rollbackPath;
+            const targetMode = rollbackMode;
             isTrackingRollback = false;
-            
-            Quickshell.execDetached(["caelestia", "wallpaper", "-f", rollbackPath, ...smartArg]);
+
+            actualCurrent = targetPath;
+            if (wallpaperMode !== targetMode) {
+                wallpaperMode = targetMode;
+            } else {
+                Quickshell.execDetached(["caelestia", "wallpaper", "-f", targetPath, ...smartArg]);
+            }
         }
 
         if (previewColourLock) {
@@ -315,6 +323,9 @@ Searcher {
 
         function startFor(path) {
             if (!path) return;
+            if (running) {
+                running = false;
+            }
             currentProcessingPath = path;
             running = true;
         }
