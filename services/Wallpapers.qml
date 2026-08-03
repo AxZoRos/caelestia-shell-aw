@@ -314,52 +314,65 @@ Searcher {
         nameFilters: ["*.mp4", "*.webm", "*.mkv"]
     }
 
-    Process {
-        id: getPreviewColoursProc
+  Process {
+    id: getPreviewColoursProc
+    property string currentProcessingPath: ""
+    property string pendingPath: ""
+    property real startTime: 0
 
-        property string currentProcessingPath: ""
+    command: ["caelestia", "wallpaper", "-p", currentProcessingPath, ...root.smartArg]
 
-        command: ["caelestia", "wallpaper", "-p", currentProcessingPath, ...root.smartArg]
-
-        function startFor(path) {
-            if (!path) return;
-            if (running) {
-                running = false;
-            }
-            currentProcessingPath = path;
-            running = true;
+    function startFor(path) {
+        if (!path) return;
+        
+        if (running) {
+            pendingPath = path;
+            return;
         }
 
-        stdout: StdioCollector {
-            onStreamFinished: {
-                if (!root.showPreview) return;
+        pendingPath = "";
+        currentProcessingPath = path;
+        startTime = Date.now();
+        
+        const fileName = path.split('/').pop();
+        running = true;
+    }
 
-                const raw = text ? text.trim() : "";
-                if (raw) {
-                    try {
-                        JSON.parse(raw);
-                        Colours.load(raw, true);
-                        Colours.showPreview = true;
-                    } catch (e) {
-                        // Ignore incomplete or invalid output during cancellation
-                    }
-                }
+    stdout: StdioCollector {
+        onStreamFinished: {
+            if (!root.showPreview) return;
 
-                if (root.showPreview && root.previewPath !== "" && root.previewPath !== getPreviewColoursProc.currentProcessingPath) {
-                    getPreviewColoursProc.startFor(root.previewPath);
+            const elapsed = Date.now() - getPreviewColoursProc.startTime;
+            const fileName = getPreviewColoursProc.currentProcessingPath.split('/').pop();
+            const raw = text ? text.trim() : "";
+
+            if (raw) {
+                try {
+                    JSON.parse(raw);
+                    Colours.load(raw, true);
+                    Colours.showPreview = true;
+                } catch (e) {
+                    // Ignore the incomplete output
                 }
+            }
+
+            if (getPreviewColoursProc.pendingPath !== "" && getPreviewColoursProc.pendingPath !== getPreviewColoursProc.currentProcessingPath) {
+                const next = getPreviewColoursProc.pendingPath;
+                getPreviewColoursProc.pendingPath = "";
+                getPreviewColoursProc.startFor(next);
             }
         }
     }
+}
 
     property bool _refreshing: false
     property bool restoreWallpaperMode: false
     property var itemBusters: ({})
-
     FileView {
         path: "/tmp/caelestia_thumb_ready.txt"
         watchChanges: true
         printErrors: false
+        onFileChanged: reload()
         onLoaded: {
             const raw = text().trim();
             if (!raw) return;
