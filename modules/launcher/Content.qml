@@ -62,10 +62,13 @@ Item {
 
         onTextChanged: {
             if (text === `${GlobalConfig.launcher.actionPrefix}wallpaper `) {
-                Wallpapers.updateWallpapers();
+                if (typeof Wallpapers.updateWallpapers === "function") {
+                    Wallpapers.updateWallpapers();
+                } else if (typeof Wallpapers.refresh === "function") {
+                    Wallpapers.refresh();
+                }
             }
         }
-
         onAccepted: {
             const currentItem = list.currentList?.currentItem;
             if (!currentItem)
